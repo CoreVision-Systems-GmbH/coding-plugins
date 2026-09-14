@@ -1,0 +1,30 @@
+Rechte und Nutzung
+==================
+
+Copyright (c) 2026 CoreVision Systems GmbH. Alle Rechte vorbehalten.
+
+Dieses Repository enthält den Arbeits- und Qualitätsstandard „Augmented Coding“ von
+CoreVision Systems GmbH und PCN GmbH als Plugin für Claude Code sowie künftig für
+verwandte Werkzeuge.
+
+Gestattet ist:
+
+1. Lesen, Herunterladen und Installieren des Inhalts.
+2. Die Nutzung in Projekten, die im Auftrag von oder in Zusammenarbeit mit
+   CoreVision Systems GmbH oder PCN GmbH durchgeführt werden — durch Mitarbeiter,
+   Auftragnehmer und Partner, im Rahmen dieser Projekte und für deren Dauer.
+
+Ohne vorherige schriftliche Zustimmung von CoreVision Systems GmbH ist nicht gestattet:
+
+1. Die Nutzung für Projekte Dritter außerhalb des genannten Rahmens.
+2. Die Weitergabe, Veröffentlichung oder der Vertrieb, ganz oder in Teilen, verändert
+   oder unverändert, auch unter anderem Namen.
+3. Die Nutzung des Inhalts zum Training von KI-Modellen.
+
+Änderungsvorschläge sind willkommen — als Issue in diesem Repository. Wer einen Beitrag
+einreicht, räumt CoreVision Systems GmbH das Recht ein, ihn im Standard zu verwenden.
+
+Der Inhalt wird ohne Gewähr bereitgestellt. Eine Haftung für Schäden aus der Nutzung ist
+ausgeschlossen, soweit gesetzlich zulässig.
+
+Kontakt: github@corevision-systems.com
