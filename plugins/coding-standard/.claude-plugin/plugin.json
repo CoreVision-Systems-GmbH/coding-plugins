@@ -1,6 +1,6 @@
 {
   "name": "coding-standard",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Arbeits- und Qualitätsstandard für Coding-Sessions bei PCN und CoreVision: Kern und Stack-Overlays (Laravel, FastAPI, Script, Astro; Next.js als Ausnahme), die ein SessionStart-Hook in erklärten Repos automatisch lädt; /projekt-neu legt ein neues Projekt samt Repository an; Ablauf-Skills /release, /deploy-check und /pr; ein PreToolUse-Hook gegen zerstörende Git-Befehle; sieben Reviewer-Agents.",
   "author": {
     "name": "CoreVision Systems / PCN GmbH",

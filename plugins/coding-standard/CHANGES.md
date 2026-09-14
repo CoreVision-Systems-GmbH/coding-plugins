@@ -7,6 +7,8 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [0.6.0] — 2026-09-14
+
 ### Geändert
 
 - **Verteilung über das öffentliche Repository `CoreVision-Systems-GmbH/coding-plugins`.** Der
