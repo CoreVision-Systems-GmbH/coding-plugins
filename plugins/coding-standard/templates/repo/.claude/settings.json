@@ -1,0 +1,14 @@
+{
+  "extraKnownMarketplaces": {
+    "corevision": {
+      "source": {
+        "source": "github",
+        "repo": "CoreVision-Systems-GmbH/coding-plugins"
+      },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "coding-standard@corevision": true
+  }
+}

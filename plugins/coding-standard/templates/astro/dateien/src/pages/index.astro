@@ -1,0 +1,16 @@
+---
+// Platzhalter-Startseite aus dem Gerüst. Ersetzen, sobald der erste Inhalt
+// steht — Titel und Beschreibung bleiben Pflicht.
+import Base from '../layouts/Base.astro';
+
+const titel = '{{NAME}}';
+const beschreibung = "{{PURPOSE}}";
+---
+
+<Base title={titel} description={beschreibung}>
+    <main>
+        <h1>{titel}</h1>
+        <p>{beschreibung}</p>
+        <p>Diese Startseite ist ein Platzhalter aus dem Gerüst.</p>
+    </main>
+</Base>

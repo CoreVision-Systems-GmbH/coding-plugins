@@ -1,0 +1,133 @@
+# Betriebsverbund von {{NAME}}.
+#
+# Der Projektname ist gesetzt, damit Container- und Netznamen unabhängig vom
+# Verzeichnisnamen stabil bleiben.
+#
+# Kein Port wird nach außen veröffentlicht: Der Edge-Caddy des Servers liegt
+# im selben Netz `edge` und spricht den Anwendungscontainer über seinen Namen
+# an. Datenbank und Warteschlangen-Arbeiter hängen ausschließlich im internen
+# Netz und sind von außen nicht erreichbar.
+#
+# Das Abbild wird nicht hier gebaut, sondern aus der Registry geladen: Der
+# Release-Workflow baut es aus einem Tag nach GHCR, `APP_VERSION` in der .env
+# der Instanz bestimmt, welcher Stand läuft. Geändert wird dieser Wert nur
+# über deploy/update.sh — dann steht der Rückweg fest.
+#
+# Zum Bauen auf dem eigenen Rechner die Überlagerung dazunehmen:
+#     APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml build
+
+name: {{NAME}}
+
+services:
+    app:
+        image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
+        container_name: {{NAME}}-app
+        restart: unless-stopped
+        env_file: .env
+        environment:
+            CONTAINER_ROLE: web
+        volumes:
+            - app_storage:/app/storage/app
+        networks:
+            - edge
+            - internal
+        depends_on:
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:8080/up']
+            interval: 30s
+            timeout: 5s
+            retries: 5
+            start_period: 60s
+
+    # Hintergrundarbeit aus der Datenbank-Warteschlange. `--max-time=3600` lässt
+    # den Prozess stündlich neu starten; so gibt er Speicher zurück und holt
+    # sich nach einem Update von selbst den neuen Code.
+    worker:
+        image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
+        container_name: {{NAME}}-worker
+        restart: unless-stopped
+        env_file: .env
+        environment:
+            CONTAINER_ROLE: worker
+        command:
+            [
+                'php',
+                'artisan',
+                'queue:work',
+                '--tries=3',
+                '--backoff=30',
+                '--max-time=3600',
+                '--sleep=3',
+            ]
+        volumes:
+            - app_storage:/app/storage/app
+        networks:
+            - internal
+        # Kein Zustandstest: Diese Rolle bedient keinen Webserver, der aus dem
+        # Abbild geerbte Test liefe dauerhaft ins Leere.
+        healthcheck:
+            disable: true
+        depends_on:
+            app:
+                condition: service_started
+            db:
+                condition: service_healthy
+
+    # Zeitgesteuerte Arbeit. Die Taktung wird in der Anwendung gepflegt
+    # (routes/console.php), nicht hier.
+    scheduler:
+        image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
+        container_name: {{NAME}}-scheduler
+        restart: unless-stopped
+        env_file: .env
+        environment:
+            CONTAINER_ROLE: worker
+        command: ['php', 'artisan', 'schedule:work']
+        volumes:
+            - app_storage:/app/storage/app
+        networks:
+            - internal
+        healthcheck:
+            disable: true
+        depends_on:
+            app:
+                condition: service_started
+            db:
+                condition: service_healthy
+
+    db:
+        image: postgres:18-alpine
+        container_name: {{NAME}}-db
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: ${DB_DATABASE}
+            POSTGRES_USER: ${DB_USERNAME}
+            POSTGRES_PASSWORD: ${DB_PASSWORD}
+            # Deutschsprachige Sortierung für Namen mit Umlauten.
+            POSTGRES_INITDB_ARGS: '--locale-provider=icu --icu-locale=de-AT --encoding=UTF8'
+        volumes:
+            # PostgreSQL 18 legt die Daten in einem versionsbenannten Unterverzeichnis
+            # ab. Der Mount gehört deshalb auf /var/lib/postgresql und nicht auf
+            # .../data — sonst verweigert das Abbild den Start.
+            - db_data:/var/lib/postgresql
+        networks:
+            - internal
+        healthcheck:
+            test:
+                ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}']
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 30s
+
+volumes:
+    db_data:
+    app_storage:
+
+networks:
+    # Wird vom Edge-Proxy des Servers bereitgestellt und hier nur mitbenutzt.
+    edge:
+        external: true
+    internal:

@@ -1,0 +1,39 @@
+# Betriebsverbund von {{NAME}}.
+#
+# Der Projektname ist gesetzt, damit Container- und Netznamen unabhängig vom
+# Verzeichnisnamen stabil bleiben.
+#
+# Kein Port wird nach außen veröffentlicht: Der Edge-Caddy des Servers liegt
+# im selben Netz `edge` und spricht den Container über seinen Namen an. Ein
+# internes Netz gibt es nicht — die Site redet mit niemandem.
+#
+# Das Abbild wird nicht hier gebaut, sondern aus der Registry geladen: Der
+# Release-Workflow baut es aus einem Tag nach GHCR, `APP_VERSION` in der .env
+# der Instanz bestimmt, welcher Stand läuft. Geändert wird dieser Wert nur
+# über deploy/update.sh — dann steht der Rückweg fest. Der Container selbst
+# bekommt keine Umgebung: Alles, was die Site weiß, steckt im Abbild.
+#
+# Zum Bauen auf dem eigenen Rechner die Überlagerung dazunehmen:
+#     APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml build
+
+name: {{NAME}}
+
+services:
+    app:
+        image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
+        container_name: {{NAME}}-app
+        restart: unless-stopped
+        networks:
+            - edge
+        healthcheck:
+            # wget aus BusyBox — curl gibt es im caddy-Abbild nicht.
+            test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
+            interval: 30s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+
+networks:
+    # Wird vom Edge-Proxy des Servers bereitgestellt und hier nur mitbenutzt.
+    edge:
+        external: true

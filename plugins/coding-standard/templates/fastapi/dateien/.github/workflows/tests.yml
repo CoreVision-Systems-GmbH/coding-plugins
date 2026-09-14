@@ -1,0 +1,47 @@
+name: tests
+
+# Der verpflichtende Status-Check heißt `ci` (siehe Ruleset des Repos). Der
+# Auftrag darf deshalb nicht umbenannt werden, ohne das Ruleset nachzuziehen.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements-dev.txt
+
+      - name: Formatierung
+        run: ruff format --check .
+
+      - name: Linter
+        run: ruff check .
+
+      - name: Typen
+        run: mypy app
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Sicherheitshinweise der Abhängigkeiten
+        run: pip-audit -r requirements.txt

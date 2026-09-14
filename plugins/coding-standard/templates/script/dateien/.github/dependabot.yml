@@ -1,0 +1,40 @@
+# Dependabot — wöchentliche Aktualisierung der Abhängigkeiten.
+#
+# Für diesen Stack gibt es nur die Actions der CI. Sobald eine
+# `requirements.txt` dazukommt, den auskommentierten pip-Block aktivieren.
+#
+# Grundgedanke: minor und patch kommen gebündelt als ein PR je Ökosystem. major
+# bleibt einzeln, weil ein Versionssprung gelesen werden muss. Die Karenzzeit
+# (cooldown) von fünf Tagen hält frisch veröffentlichte, zurückgezogene oder
+# kompromittierte Versionen draußen.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "ci"
+
+  # - package-ecosystem: "pip"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   cooldown:
+  #     default-days: 5
+  #   groups:
+  #     pip-minor-patch:
+  #       update-types:
+  #         - "minor"
+  #         - "patch"
+  #   commit-message:
+  #     prefix: "chore"

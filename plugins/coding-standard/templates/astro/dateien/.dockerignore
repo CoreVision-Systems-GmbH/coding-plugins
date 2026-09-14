@@ -1,0 +1,21 @@
+# Was nicht in den Bau gehört. Kein pauschales *.md: Inhalte einer Content-Site
+# liegen als Markdown unter src/ und müssen mit.
+.git
+.github
+.claude
+deploy
+docs
+tests
+compose.yaml
+compose.build.yaml
+node_modules
+dist
+.astro
+.env
+.env.*
+!.env.example
+CLAUDE.md
+CHANGES.md
+.projekt-neu-nacharbeit
+.idea
+.vscode

@@ -1,0 +1,34 @@
+# Interner Webserver des Anwendungscontainers.
+#
+# TLS und die Zuordnung der Hostnamen macht der Edge-Caddy des Servers; hier
+# wird bewusst nur einfaches HTTP auf 8080 gesprochen. Deshalb `auto_https off`
+# — sonst versuchte FrankenPHP, eigene Zertifikate zu besorgen.
+
+{
+	frankenphp
+	auto_https off
+	admin off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+:8080 {
+	root /app/public
+	encode zstd gzip
+
+	# Vom Edge-Caddy weitergereichte Kopfzeilen werden von Laravel ausgewertet
+	# (TrustProxies). Der Health-Pfad bleibt ohne Protokollierung, damit die
+	# Überwachung das Zugriffsprotokoll nicht flutet.
+	@health path /up
+	log_skip @health
+
+	php_server {
+		index index.php
+	}
+
+	log {
+		output stderr
+		format json
+	}
+}

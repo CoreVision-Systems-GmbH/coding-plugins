@@ -1,0 +1,74 @@
+name: tests
+
+# Der verpflichtende Status-Check heißt `ci` (siehe Ruleset des Repos). Der
+# Auftrag darf deshalb nicht umbenannt werden, ohne das Ruleset nachzuziehen.
+#
+# Die Schritte prüfen nur, was es im Repo tatsächlich gibt: Wer keine
+# PowerShell-Skripte hat, soll deswegen kein rotes Kreuz sehen.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Shell-Skripte prüfen (shellcheck)
+        run: |
+          set -euo pipefail
+          mapfile -t dateien < <(git ls-files '*.sh')
+          if [ ${#dateien[@]} -eq 0 ]; then
+            echo "Keine Shell-Skripte im Repo — übersprungen."
+            exit 0
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck "${dateien[@]}"
+
+      - name: Setup Python
+        id: python
+        if: hashFiles('**/*.py') != ''
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Python prüfen (ruff, pytest)
+        if: steps.python.outcome == 'success'
+        run: |
+          set -euo pipefail
+          pip install --quiet ruff pytest
+          ruff format --check .
+          ruff check .
+          if [ -d tests ]; then
+            pytest -q
+          else
+            echo "Kein tests/-Verzeichnis — pytest übersprungen."
+          fi
+
+      # PSScriptAnalyzer läuft nur, wenn es PowerShell-Skripte gibt. Der
+      # Auftrag läuft auf Linux; PowerShell ist auf den GitHub-Läufern dabei.
+      - name: PowerShell prüfen (PSScriptAnalyzer)
+        if: hashFiles('**/*.ps1') != ''
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
+          $befunde = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error,Warning
+          if ($befunde) {
+            $befunde | Format-Table -AutoSize
+            throw "PSScriptAnalyzer meldet $($befunde.Count) Befund(e)."
+          }
+          Write-Output "PSScriptAnalyzer: keine Befunde."

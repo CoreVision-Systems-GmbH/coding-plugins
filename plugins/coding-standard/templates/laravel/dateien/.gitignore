@@ -1,0 +1,53 @@
+/.phpunit.cache
+/bootstrap/ssr
+/node_modules
+/vendor
+
+# Erzeugte Artefakte. Dieselbe Liste gehört in .dockerignore, in die Excludes
+# von Pint und Larastan und in vite.config.ts — dort in `fmt.ignorePatterns`
+# UND in `lint.ignorePatterns`. Wer hier etwas ergänzt, ergänzt es dort auch.
+/public/build
+/public/hot
+/public/storage
+/public/css/filament
+/public/js/filament
+/public/fonts/filament
+/public/vendor
+/public/fonts-manifest.dev.json
+/resources/js/actions
+/resources/js/routes
+/resources/js/wayfinder
+
+/storage/*.key
+/storage/pail
+.DS_Store
+.env
+.env.backup
+.env.production
+.phpactor.json
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+/auth.json
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+
+# Zusätzlich (Firmenstandard)
+*.cred
+*.key
+*.pem
+secrets.json
+credentials.json
+/dist
+/build
+/.claude/settings.local.json
+.projekt-neu-nacharbeit
+
+# Lokale Entwicklungsdatenbank
+/database/database.sqlite
+/database/*.sqlite-journal

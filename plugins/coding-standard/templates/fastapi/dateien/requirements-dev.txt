@@ -1,0 +1,11 @@
+# Zusätzliche Abhängigkeiten für Entwicklung und CI.
+#
+# Stand: 2026-09-11
+
+-r requirements.txt
+
+pytest==9.1.1
+httpx==0.28.1
+ruff==0.16.7
+mypy==2.3.1
+pip-audit==2.10.1

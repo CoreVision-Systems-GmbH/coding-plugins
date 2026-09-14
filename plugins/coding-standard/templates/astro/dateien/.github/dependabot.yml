@@ -1,0 +1,53 @@
+# Dependabot — wöchentliche Aktualisierung der Abhängigkeiten.
+#
+# Grundgedanke: minor und patch kommen gebündelt als ein PR je Ökosystem, damit nicht
+# jede Woche ein Dutzend Einzel-PRs offen liegt. major bleibt einzeln, weil ein
+# Versionssprung gelesen werden muss. Die Karenzzeit (cooldown) von fünf Tagen hält
+# frisch veröffentlichte, zurückgezogene oder kompromittierte Versionen draußen.
+#
+# Ökosysteme, die dieses Repo nicht hat, einfach löschen.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    groups:
+      docker-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore"

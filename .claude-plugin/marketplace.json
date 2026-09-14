@@ -1,0 +1,19 @@
+{
+  "name": "corevision",
+  "owner": {
+    "name": "CoreVision Systems / PCN GmbH",
+    "email": "github.pcn@pcn.at"
+  },
+  "metadata": {
+    "description": "Firmen-Marketplace von PCN GmbH und CoreVision Systems für Claude Code.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "coding-standard",
+      "source": "./plugins/coding-standard",
+      "description": "Arbeits- und Qualitätsstandard für Coding-Sessions: Kern + Stack-Overlays (Laravel, FastAPI, Script, Astro; automatisch geladen), /projekt-neu für neue Projekte, Skills /release, /deploy-check, /pr, Git-Schutzhook und Reviewer-Agents.",
+      "version": "0.5.0"
+    }
+  ]
+}

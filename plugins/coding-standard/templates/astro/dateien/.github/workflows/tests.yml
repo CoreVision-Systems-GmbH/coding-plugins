@@ -1,0 +1,50 @@
+name: tests
+
+# Der verpflichtende Status-Check heißt `ci` (siehe Ruleset des Repos). Der
+# Auftrag darf deshalb nicht umbenannt werden, ohne das Ruleset nachzuziehen.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Astro meldet Nutzung an den Hersteller, solange das nicht abgeschaltet ist.
+  ASTRO_TELEMETRY_DISABLED: 1
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Typen und Vorlagen
+        run: npm run check
+
+      # Der Bau ist die eigentliche Prüfung: Er scheitert bei Schemaverstößen
+      # in Collections, fehlenden Bildern und fehlender `site`.
+      - name: Bauen
+        run: npm run build
+
+      - name: Tests gegen dist/
+        run: npm test
+
+      - name: Sicherheitshinweise der Abhängigkeiten
+        run: npm audit --omit=dev --audit-level=high

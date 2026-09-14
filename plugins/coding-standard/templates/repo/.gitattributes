@@ -1,0 +1,23 @@
+# Zeilenenden: Im Repository steht immer LF. Ausgecheckt wird unter Windows das,
+# was das jeweilige Werkzeug lesen kann — Shell-Skripte brauchen LF (Git Bash und
+# Docker stolpern sonst über das \r), Batch-Dateien brauchen CRLF.
+
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.bash text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+*.md diff=markdown
+*.php diff=php
+*.py diff=python
+*.css diff=css
+*.html diff=html
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

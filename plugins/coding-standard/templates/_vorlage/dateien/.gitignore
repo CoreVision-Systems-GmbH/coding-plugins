@@ -1,0 +1,20 @@
+# Umgebung und Geheimnisse
+.env
+.env.*
+!.env.example
+*.cred
+*.key
+*.pem
+secrets.json
+credentials.json
+
+# Werkzeuge
+.DS_Store
+/.idea
+/.vscode
+/.zed
+/.claude/settings.local.json
+.projekt-neu-nacharbeit
+
+# <hier die erzeugten Artefakte des Stacks ergänzen — dieselbe Liste gehört
+#  auch in .dockerignore und in die Ausnahmelisten von Formatter und Linter>

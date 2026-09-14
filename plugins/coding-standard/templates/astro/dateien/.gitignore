@@ -1,0 +1,23 @@
+# Node und Astro
+node_modules/
+dist/
+.astro/
+npm-debug.log*
+
+# Umgebung und Geheimnisse
+.env
+.env.*
+!.env.example
+*.cred
+*.key
+*.pem
+secrets.json
+credentials.json
+
+# Werkzeuge
+.DS_Store
+/.idea
+/.vscode
+/.zed
+/.claude/settings.local.json
+.projekt-neu-nacharbeit

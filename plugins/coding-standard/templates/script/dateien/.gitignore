@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Umgebung und Geheimnisse
+.env
+.env.*
+!.env.example
+*.cred
+*.key
+*.pem
+secrets.json
+credentials.json
+
+# Werkzeuge
+.DS_Store
+/.idea
+/.vscode
+/.zed
+/.claude/settings.local.json
+.projekt-neu-nacharbeit

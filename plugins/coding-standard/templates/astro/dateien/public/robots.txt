@@ -1,0 +1,6 @@
+# Alle Suchmaschinen dürfen alles. Die Sitemap entsteht beim Bau aus `site`
+# (astro.config.mjs) — die Adresse hier muss dieselbe sein.
+User-agent: *
+Allow: /
+
+Sitemap: https://{{NAME}}.invalid/sitemap-index.xml

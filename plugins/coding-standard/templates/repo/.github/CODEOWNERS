@@ -1,0 +1,14 @@
+# CODEOWNERS — wer wird automatisch als Reviewer angefragt.
+#
+# Zu Beginn ist der Eigentümer das Konto, das das Projekt angelegt hat. Sobald die
+# Organisation Teams hat, hier auf Teams umstellen,
+# zum Beispiel:
+#
+#   *                     @corevisionsystems/entwicklung
+#   /database/migrations/ @corevisionsystems/entwicklung @corevisionsystems/betrieb
+#   /.github/             @corevisionsystems/betrieb
+#
+# Hinweis: CODEOWNERS wirkt erst zusammen mit der Ruleset-Regel
+# "require_code_owner_review" (siehe rulesets/main.json im Plugin-Repo).
+
+* @{{OWNER_USER}}

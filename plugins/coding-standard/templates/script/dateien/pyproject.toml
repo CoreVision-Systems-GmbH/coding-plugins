@@ -1,0 +1,19 @@
+# Werkzeugkette von {{NAME}} — nur Konfiguration für Formatter, Linter und
+# Tests. Es gibt kein Paket und keine Abhängigkeiten: Die Werkzeuge werden in
+# der CI installiert, lokal nach Bedarf (pip install ruff pytest).
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "S", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# In Tests sind assert-Anweisungen der Zweck der Übung.
+"tests/**" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

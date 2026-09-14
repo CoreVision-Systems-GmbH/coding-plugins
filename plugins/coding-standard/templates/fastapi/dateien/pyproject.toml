@@ -1,0 +1,48 @@
+# Werkzeugkette von {{NAME}} — eine Konfiguration für Formatter, Linter,
+# Typprüfung und Tests. Die Abhängigkeiten selbst stehen gepinnt in
+# requirements.txt bzw. requirements-dev.txt.
+
+[project]
+name = "{{NAME_SNAKE}}"
+version = "0.1.0"
+description = "{{PURPOSE}}"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "SIM", # simplify
+    "S",   # bandit: Sicherheitsmuster
+    "RUF",
+]
+ignore = [
+    # FastAPI setzt Abhängigkeiten und Validierungen als Vorgabewerte im
+    # Funktionskopf ein — genau das, was B008 anmahnt. Hier ist es das Muster
+    # des Frameworks, kein Versehen.
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# In Tests sind assert-Anweisungen der Zweck der Übung.
+"tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+exclude = ["^\\.venv/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

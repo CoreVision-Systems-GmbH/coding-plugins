@@ -1,0 +1,12 @@
+---
+// Fehlerseite. Astro baut sie nach dist/404.html; der Caddy im Abbild liefert
+// sie mit Status 404 aus, wenn es einen Pfad nicht gibt.
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Seite nicht gefunden" description="Die angeforderte Seite gibt es nicht oder nicht mehr.">
+    <main>
+        <h1>Seite nicht gefunden</h1>
+        <p>Die Adresse gibt es nicht oder nicht mehr. <a href="/">Zur Startseite</a></p>
+    </main>
+</Base>

@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Umgebung und Geheimnisse
+.env
+.env.*
+!.env.example
+*.cred
+*.key
+*.pem
+secrets.json
+credentials.json
+
+# Daten
+/data/
+*.sqlite
+*.sqlite3
+
+# Werkzeuge
+.DS_Store
+/.idea
+/.vscode
+/.zed
+/.claude/settings.local.json
+.projekt-neu-nacharbeit
