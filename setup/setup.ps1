@@ -1,4 +1,6 @@
-﻿# setup.ps1 — richtet einen Windows-Rechner für Augmented Coding nach dem Firmenstandard ein.
+# setup.ps1 — richtet einen Windows-Rechner für Augmented Coding nach dem Firmenstandard ein.
+# (UTF-8 ohne BOM: mit BOM scheitert `irm … | iex` am param-Block. Wer die Datei mit
+#  Windows PowerShell 5.1 per -File startet, sieht Umlaute verstümmelt — läuft trotzdem.)
 #
 # Was es tut, in dieser Reihenfolge — jeder Schritt wird übersprungen, wenn er schon erledigt ist:
 #   1. Git for Windows            (winget, Git.Git)        — Claude Code braucht Git Bash
@@ -56,8 +58,8 @@ function Vorhanden([string]$Befehl) {
 function Fassung([string]$Befehl, [string[]]$Argumente) {
     # $Args wäre die automatische Variable — deshalb $Argumente.
     try {
-        $zeilen = (& $Befehl @Argumente 2>&1 | Out-String) -split "`r?`n" | Where-Object { $_.Trim() -ne '' }
-        if ($zeilen) { return ([string]$zeilen[0]).Trim() } else { return '' }
+        $zeilen = @(((& $Befehl @Argumente 2>&1 | Out-String) -split '\r?\n') | Where-Object { $_.Trim() -ne '' })
+        if ($zeilen.Count -gt 0) { return ([string]$zeilen[0]).Trim() } else { return '' }
     } catch { return '' }
 }
 
