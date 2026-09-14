@@ -7,6 +7,14 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+### Hinzugefügt
+
+- Einrichtungsskripte für neue Coder im Verteil-Repo: `setup/setup.ps1` (Windows) und
+  `setup/setup.sh` (macOS/Linux/WSL) installieren Git, GitHub CLI und Claude Code, fügen den
+  Marketplace hinzu, installieren das Plugin und prüfen — Vorhandenes wird übersprungen,
+  `-DryRun`/`--dry-run` zeigt nur, `-GitHubLogin`/`--github-login` meldet gh an. README und
+  Rechtetext des Verteil-Repos liegen jetzt unter `verteilung/` und werden mit veröffentlicht.
+
 ## [0.6.0] — 2026-09-14
 
 ### Geändert
