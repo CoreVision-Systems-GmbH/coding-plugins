@@ -1,0 +1,103 @@
+# Betriebsverbund von {{NAME}}.
+#
+# Der Projektname ist gesetzt, damit Container- und Netznamen unabhängig vom
+# Verzeichnisnamen stabil bleiben.
+#
+# Kein Port wird nach außen veröffentlicht: Der Edge-Caddy des Servers liegt im selben
+# Netz `edge` und spricht den Anwendungscontainer über seinen Namen an. Datenbank und
+# Cron-Dienst hängen ausschließlich im internen Netz.
+#
+# Das Abbild wird nicht hier gebaut, sondern aus der Registry geladen: Der
+# Release-Workflow baut es aus einem Tag nach GHCR, `APP_VERSION` in der .env der
+# Instanz bestimmt, welcher Stand läuft. Geändert wird dieser Wert nur über
+# deploy/update.sh — dann steht der Rückweg fest. Ein neues Abbild ist zugleich das
+# WordPress-Update: Kern und Plugins wechseln mit dem Tag, nie über den Admin.
+#
+# Zum Bauen auf dem eigenen Rechner die Überlagerung dazunehmen:
+#     APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml build
+
+name: {{NAME}}
+
+services:
+    app:
+        image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
+        container_name: {{NAME}}-app
+        restart: unless-stopped
+        env_file: .env
+        volumes:
+            - app_uploads:/app/web/app/uploads
+        networks:
+            - edge
+            - internal
+        depends_on:
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:8080/healthz']
+            interval: 30s
+            timeout: 5s
+            retries: 5
+            start_period: 60s
+
+    # Zeitgesteuertes (geplante Beiträge, Aufräumen, Aufgaben von Plugins). WordPress
+    # würde das sonst bei Besucheranfragen erledigen — unzuverlässig, und der Besucher
+    # wartet darauf. DISABLE_WP_CRON steht in config/application.php.
+    cron:
+        image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
+        container_name: {{NAME}}-cron
+        restart: unless-stopped
+        env_file: .env
+        command:
+            [
+                'sh',
+                '-c',
+                'while :; do wp cron event run --due-now --quiet || true; sleep 60; done',
+            ]
+        volumes:
+            - app_uploads:/app/web/app/uploads
+        networks:
+            - internal
+        # Kein Zustandstest: Diese Rolle bedient keinen Webserver, der aus dem Abbild
+        # geerbte Test liefe dauerhaft ins Leere.
+        healthcheck:
+            disable: true
+        depends_on:
+            app:
+                condition: service_started
+            db:
+                condition: service_healthy
+
+    db:
+        image: mariadb:11.8
+        container_name: {{NAME}}-db
+        restart: unless-stopped
+        environment:
+            MARIADB_DATABASE: ${DB_NAME}
+            MARIADB_USER: ${DB_USER}
+            MARIADB_PASSWORD: ${DB_PASSWORD}
+            # Root braucht niemand: Die Anwendung hat ihren Benutzer, die Sicherung auch.
+            MARIADB_RANDOM_ROOT_PASSWORD: 'yes'
+            # Nach einem Bump des Abbilds hebt der Container das Systemschema selbst.
+            MARIADB_AUTO_UPGRADE: 'yes'
+        command:
+            ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci']
+        volumes:
+            - db_data:/var/lib/mysql
+        networks:
+            - internal
+        healthcheck:
+            test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 30s
+
+volumes:
+    db_data:
+    app_uploads:
+
+networks:
+    # Wird vom Edge-Proxy des Servers bereitgestellt und hier nur mitbenutzt.
+    edge:
+        external: true
+    internal:

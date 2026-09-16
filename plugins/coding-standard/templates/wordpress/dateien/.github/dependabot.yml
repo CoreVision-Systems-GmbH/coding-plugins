@@ -1,0 +1,55 @@
+# Dependabot — wöchentliche Aktualisierung der Abhängigkeiten.
+#
+# Grundgedanke: minor und patch kommen gebündelt als ein PR je Ökosystem, damit nicht
+# jede Woche ein Dutzend Einzel-PRs offen liegt. major bleibt einzeln, weil ein
+# Versionssprung gelesen werden muss. Die Karenzzeit (cooldown) von fünf Tagen hält
+# frisch veröffentlichte, zurückgezogene oder kompromittierte Versionen draußen.
+#
+# WordPress selbst (roots/wordpress) ist auf eine Nebenfassung gepinnt (~X.Y.0): Der
+# Sprung auf die nächste kommt als eigener PR, mit Blick in die Release-Notizen und
+# einem Lauf im lokalen Verbund — nicht als Dependabot-Bündel.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    groups:
+      composer-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    groups:
+      docker-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore"

@@ -1,0 +1,3 @@
+# wp-cli: WordPress liegt unter web/wp (Bedrock-Layout). Gilt im Abbild (WORKDIR /app)
+# und für Aufrufe im Projektordner.
+path: web/wp

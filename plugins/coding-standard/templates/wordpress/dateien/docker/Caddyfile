@@ -1,0 +1,52 @@
+# Interner Webserver des Anwendungscontainers.
+#
+# TLS und die Zuordnung der Hostnamen macht der Edge-Caddy des Servers; hier wird
+# bewusst nur einfaches HTTP auf 8080 gesprochen. Deshalb `auto_https off` — sonst
+# versuchte FrankenPHP, eigene Zertifikate zu besorgen. `admin off`, weil niemand die
+# Konfiguration zur Laufzeit ändern soll.
+
+{
+	frankenphp
+	auto_https off
+	admin off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+:8080 {
+	root * /app/web
+	encode zstd gzip
+
+	# Kein Server-Banner, keine MIME-Rätselei im Browser, sparsamer Referrer.
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	# Der Zustandsbericht kommt aus dem Mu-Plugin firmenstandard. Der Pfad bleibt ohne
+	# Protokollierung, damit die Überwachung das Zugriffsprotokoll nicht flutet.
+	@health path /healthz
+	log_skip @health
+
+	# Kein PHP aus den Uploads (der klassische Weg, Schadcode nachzuladen), kein XML-RPC,
+	# keine Konfigurationsdatei über das Netz.
+	@gesperrt path /app/uploads/*.php /app/uploads/*/*.php /wp/xmlrpc.php /wp-config.php /wp/wp-config.php
+	respond @gesperrt 403
+
+	# Statisches darf der Browser eine Woche behalten; an Skripte und Stile hängt
+	# WordPress ohnehin einen Fassungs-Parameter.
+	@statisch path_regexp \.(css|js|mjs|woff2?|ttf|png|jpe?g|gif|svg|webp|avif|ico|mp4|pdf)$
+	header @statisch Cache-Control "public, max-age=604800"
+
+	# Hübsche Adressen: Was keine Datei ist, landet in index.php (WordPress-Router).
+	php_server {
+		index index.php
+	}
+
+	log {
+		output stderr
+		format json
+	}
+}

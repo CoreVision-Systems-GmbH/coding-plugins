@@ -1,0 +1,29 @@
+# Was nicht in den Bau gehört. vendor und web/wp entstehen im Bau neu (composer
+# install), Uploads und Sprachpakete sind kein Quelltext.
+.git
+.github
+.claude
+deploy
+docs
+tests
+compose.yaml
+compose.build.yaml
+compose.dev.yaml
+vendor
+web/wp
+web/app/uploads
+web/app/languages
+web/app/upgrade
+web/app/cache
+.env
+.env.*
+!.env.example
+CLAUDE.md
+CHANGES.md
+README.md
+.projekt-neu-nacharbeit
+phpcs.xml
+phpstan.neon
+.phpcs-cache
+.idea
+.vscode

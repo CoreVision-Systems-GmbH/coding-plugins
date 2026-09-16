@@ -1,0 +1,42 @@
+# WordPress-Kern und Composer-Pakete — kommen über composer install. Plugins nur so;
+# ein gekauftes Plugin ohne Composer-Quelle wird gezielt freigeschaltet
+# (!/web/app/plugins/<slug>/) und seine Fassung steht in CHANGES.md.
+/web/wp
+/vendor
+/web/app/plugins/*
+!/web/app/plugins/.gitkeep
+/web/app/themes/*
+!/web/app/themes/site/
+/web/app/upgrade
+/web/app/cache
+
+# Sprachpakete legt der Bau ins Abbild (docker/sprachpakete.php).
+/web/app/languages/*
+!/web/app/languages/.gitkeep
+
+# Inhalte gehören dem Redakteur, nicht dem Repo: Volume und Sicherung.
+/web/app/uploads/*
+!/web/app/uploads/.gitkeep
+
+# Umgebung und Geheimnisse
+.env
+.env.*
+!.env.example
+auth.json
+*.cred
+*.key
+*.pem
+secrets.json
+credentials.json
+
+# Werkzeuge
+*.log
+.phpcs-cache
+/.phpunit.cache
+.DS_Store
+/.idea
+/.vscode
+/.zed
+/.claude/settings.local.json
+.projekt-neu-nacharbeit
+wp-cli.local.yml

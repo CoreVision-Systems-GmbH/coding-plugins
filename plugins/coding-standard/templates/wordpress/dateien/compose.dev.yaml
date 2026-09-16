@@ -1,0 +1,39 @@
+# Überlagerung für die Entwicklung: Site unter http://localhost:8080, Theme, Mu-Plugins
+# und Konfiguration direkt aus dem Arbeitsordner (Änderungen sofort sichtbar), Fehler im
+# Browser (WP_ENV=development, keine Indexierung). Vorher einmalig:
+#
+#     docker network create edge
+#
+# Dann, mit einer .env aus .env.example (lokal genügen Platzhalter-Werte):
+#
+#     APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml -f compose.dev.yaml up --build
+#
+# Erstinstallation lokal (deploy/install.sh ist für den Server mit Edge-Caddy):
+#
+#     docker compose exec app wp core install --url=http://localhost:8080 --title=Lokal \
+#         --admin_user=<name> --admin_email=<mail> --prompt=admin_password
+#
+# Auf einem Kundenserver hat diese Datei nichts verloren.
+
+services:
+    app:
+        ports:
+            - '8080:8080'
+        environment:
+            WP_ENV: development
+            WP_HOME: http://localhost:8080
+            WP_SITEURL: http://localhost:8080/wp
+        volumes:
+            - ./web/app/themes/site:/app/web/app/themes/site
+            - ./web/app/mu-plugins:/app/web/app/mu-plugins
+            - ./config:/app/config
+            - ./docker/php.dev.ini:/usr/local/etc/php/conf.d/zz-dev.ini:ro
+
+    cron:
+        environment:
+            WP_ENV: development
+            WP_HOME: http://localhost:8080
+            WP_SITEURL: http://localhost:8080/wp
+        volumes:
+            - ./web/app/mu-plugins:/app/web/app/mu-plugins
+            - ./config:/app/config

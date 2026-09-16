@@ -19,7 +19,13 @@ set -u
 root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 proj="${CLAUDE_PROJECT_DIR:-$PWD}"
 
-[ "${CODING_STANDARD_OFF:-0}" = "1" ] && exit 0
+# --stacks: nur die erkannten Stacks ausgeben — ohne Aktivierung, ohne Anweisung. Für
+# scripts/projekt-aufnehmen.sh, das ein noch nicht erklärtes Repo einordnen muss; so gibt
+# es die Erkennung nur an einer Stelle.
+nur_stacks=0
+[ "${1:-}" = "--stacks" ] && nur_stacks=1
+
+[ "${CODING_STANDARD_OFF:-0}" = "1" ] && [ "$nur_stacks" -eq 0 ] && exit 0
 [ -f "$root/core/kern.md" ] || exit 0
 
 # ------------------------------------------------------------- Aktivierung
@@ -28,7 +34,7 @@ if [ -f "$proj/.claude/settings.json" ] && grep -q 'coding-standard@corevision' 
     aktiv=1
 fi
 [ -f "$proj/.coding-standard" ] && aktiv=1
-[ "$aktiv" -eq 1 ] || exit 0
+[ "$aktiv" -eq 1 ] || [ "$nur_stacks" -eq 1 ] || exit 0
 
 # ---------------------------------------------------------- Stack-Erkennung
 stacks=""
@@ -55,6 +61,15 @@ if [ -f "$proj/package.json" ] && grep -q '"astro"[[:space:]]*:' "$proj/package.
     stacks="$stacks astro"
 fi
 
+# WordPress: im Bedrock-Layout als Composer-Paket, im Bestand an der wp-config.php im
+# Wurzelverzeichnis.
+wordpress=0
+if [ -f "$proj/composer.json" ] && grep -qE '"(roots|johnpbloch)/wordpress"' "$proj/composer.json" 2>/dev/null; then
+    wordpress=1
+fi
+[ -f "$proj/wp-config.php" ] && wordpress=1
+[ "$wordpress" -eq 1 ] && stacks="$stacks wordpress"
+
 # Stacks ohne eigene Markerdatei (z. B. `script`) nennen sich in .coding-standard
 # selbst: eine Zeile `stack: <name>` je Stack.
 if [ -f "$proj/.coding-standard" ]; then
@@ -77,6 +92,12 @@ for s in $stacks; do
     esac
 done
 stacks="$eindeutig"
+
+if [ "$nur_stacks" -eq 1 ]; then
+    # shellcheck disable=SC2086
+    echo $stacks
+    exit 0
+fi
 
 # ------------------------------------------------------------------ Ausgabe
 erkannt="keiner"

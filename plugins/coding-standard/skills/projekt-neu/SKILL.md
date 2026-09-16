@@ -46,7 +46,11 @@ Zur Stack-Wahl (aus Name, Zweck und Kontext):
   `laravel`. Das ist das Arbeitspferd; im Zweifel dieser.
 - **Dienst mit JSON-Schnittstelle ohne eigene Oberfläche** → `fastapi`.
 - **Werkzeug ohne Laufzeit** — Wartungslauf, Auswertung, Server-Handgriff → `script`.
-- **öffentliche Content-Site** — Firmenseite, Landingpages, Doku, Blog; keine Anmeldung → `astro`.
+- **öffentliche Content-Site** — Firmenseite, Landingpages, Doku, Blog; keine Anmeldung → `astro`,
+  solange ein Entwickler die Inhalte im Repo pflegt.
+- **redaktionell gepflegte Website** — Firmenseite, Landingpages, Blog, deren Inhalte der Kunde
+  selbst im Browser pflegt → `wordpress`. Braucht es Anmeldung für Endnutzer, Shop oder Portal,
+  ist es `laravel`.
 - **Next.js wird nicht angeboten.** Verlangt der Nutzer es, nenne die drei Bedingungen aus
   `${CLAUDE_PLUGIN_ROOT}/stacks/nextjs.md` und die Alternative (`astro` oder `laravel` mit
   Inertia SSR). Der Entscheid liegt beim Nutzer; ein Ja bedeutet Anlage von Hand außerhalb von
@@ -153,10 +157,12 @@ Push des Gerüsts) ist bei Laravel erwartbar rot: `composer ci:setup` entsteht e
 Nacharbeit. Ohne Repository (`--no-github`) gibt es keinen Remote: dann direkt auf `main`
 committen.
 
-Für **astro**, **fastapi** und **script** gibt es keine Nacharbeit — deren Gerüst kommt
-vollständig aus den Vorlagen und ist im Lauf des Skripts bereits geprüft worden. Bei `astro`
-bleibt ein Handgriff aus dem Abschlussbericht: `site` in `astro.config.mjs` auf die echte
-Domain setzen.
+Für **astro**, **fastapi**, **script** und **wordpress** gibt es keine Nacharbeit — deren
+Gerüst kommt vollständig aus den Vorlagen und ist im Lauf des Skripts bereits geprüft worden.
+Bei `astro` bleibt ein Handgriff aus dem Abschlussbericht: `site` in `astro.config.mjs` auf die
+echte Domain setzen. Bei `wordpress` bleiben zwei: `WP_HOME` in der `.env` der Instanz auf die
+echte Domain, und Impressum sowie Datenschutzerklärung befüllen — `deploy/install.sh` legt beide
+Seiten leer an.
 
 ## 6. Abschluss
 

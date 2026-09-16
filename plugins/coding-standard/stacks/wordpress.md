@@ -1,0 +1,48 @@
+# Stack-Overlay WordPress — WordPress 7 im Bedrock-Layout, MariaDB
+
+Ergänzt den Kern für redaktionell gepflegte Websites: Firmenseite, Landingpages, Blog, deren Inhalte der Kunde selbst im Browser pflegt. Hier stehen Firmenentscheidungen; WordPress-Idiome kommen aus der offiziellen Entwicklerdokumentation. Trennlinie: Pflegt ein Entwickler die Inhalte im Repo, ist es `astro`; pflegt ein Redakteur sie im Browser, ist es `wordpress`; braucht das Vorhaben Anmeldung für Endnutzer, ein Datenmodell, einen Shop oder ein Portal, ist es `laravel`.
+
+## 1. Zuständigkeiten & Architektur
+- **Bedrock-Layout:** WordPress ist eine Composer-Abhängigkeit (`roots/wordpress` nach `web/wp/`), die Konfiguration liest ENV an einer Stelle (`config/application.php`), Docroot ist `web/`. Eigener Code liegt ausschließlich unter `web/app/` (das `wp-content`): `mu-plugins/` (Verhalten), `themes/site/` (das eine Theme), `plugins/` (nur per Composer). Uploads in `web/app/uploads/` sind Daten (Volume), kein Code. Die bestehende Ablage eines Repos hat Vorrang.
+- **Code oder Inhalt:** Theme, Mu-Plugins, Konfiguration und die Plugin-Auswahl sind Code — Repo, Review, Release. Seiten, Beiträge, Medien, Menüs, Einstellungen sind Inhalt — Datenbank und Uploads, gehören dem Redakteur, werden gesichert, kommen nie ins Repo und nie hart in den Code.
+- **Verhalten in Mu-Plugins, Darstellung im Theme.** Eigene Inhaltstypen, Blöcke, Muster, Hooks als Datei unter `web/app/mu-plugins/`, nicht in der `functions.php`: Sie überleben einen Theme-Wechsel, und kein Redakteur kann sie abschalten. Das Mu-Plugin `firmenstandard.php` ist der Betriebsvertrag (Health, Fassung, Härtung) und bleibt in jeder Instanz.
+- **Block-Theme:** `theme.json` für die Gestaltung, `templates/` und `parts/` als HTML mit Blöcken, kein Classic Editor, kein Page-Builder. Core-Blöcke und ein Muster (Pattern) sind meist die Antwort; ein eigener Block erst, wenn beides nachweislich nicht reicht.
+- **Plugins:** jedes eine Entscheidung mit Zweck, Pflegestand (letzte Aktualisierung, aktive Installationen, Lizenz) und Begründung als ADR; so wenige wie möglich. Bezug ausschließlich per Composer (`wp-plugin/<slug>` aus `repo.wp-packages.org`); ein gekauftes Plugin ohne Composer-Quelle liegt als Ordner im Repo, seine Fassung steht in `CHANGES.md`.
+- Vor dem Code je Funktion festhalten: `Fläche: Theme | Mu-Plugin | Plugin (welches, warum) · Nutzer: Besucher | Redakteur · Code oder Inhalt`.
+
+## 2. Grenzen (nicht verhandelbar)
+- **Kein Code aus dem Admin.** `DISALLOW_FILE_MODS`, `DISALLOW_FILE_EDIT` und abgeschaltete Auto-Updates gelten in jeder Umgebung, auch lokal. Kern, Plugins, Themes und Sprachpakete kommen nur über Composer und das Abbild. Was der Admin nicht installieren kann, kann auch ein gekaperter Admin nicht.
+- **Keine Anwendung auf WordPress.** Anmeldung für Endnutzer, Mitgliederbereich, Shop (WooCommerce), Formulare mit Datenhaltung, Schnittstellen zu Firmensystemen → `laravel`. WordPress ist die Website, nicht das Produkt. Ein Kontaktformular ist erlaubt, solange es nur versendet und nichts speichert.
+- **Datenbank ist MariaDB**, nicht PostgreSQL — WordPress kennt nichts anderes tragfähig. Bewusste Abweichung vom Firmenstandard, gilt nur für diesen Stack; kein anderes System greift auf diese Datenbank zu.
+- Keine Secrets im Repo oder Abbild: Salts, Datenbank- und Admin-Passwort stehen in der `.env` der Instanz und im KeePassXC-Tresor. Sicherungen sind vertraulich — sie enthalten Nutzerkonten und die Zugangsdaten, die Plugins in `wp_options` ablegen.
+- Keine fremden Skripte ohne Entscheidung (Tracking, Schriften von Drittservern, Einbettungen): Jedes lädt Daten des Besuchers zu einem Dritten — ein Datenschutz-Thema, kein Handgriff. Schriften lokal.
+- XML-RPC aus, Nutzerliste über REST nur angemeldet, kein Generator-Tag, Kommentare und Pingbacks standardmäßig aus (`firmenstandard.php`, `deploy/install.sh`).
+
+## 3. Werkzeugkette
+- Befehle aus `composer.json` des Repos ermitteln. Standard für neue Sites: `composer lint` (PHPCS mit WordPress-Coding-Standards für Theme und Mu-Plugins, PSR-12 für `config/` und `tests/`), `composer analyse` (PHPStan Stufe 6 mit WordPress-Stubs), `composer test` (Strukturprüfung `tests/pruefe-struktur.php`: Theme vollständig, `theme.json` gültig, ENV-Schema deckt die Konfiguration, WordPress gepinnt), `composer audit`; `composer check` = alles.
+- Abhängigkeiten: `roots/wordpress` auf eine Nebenfassung gepinnt (`~7.1.0`), Plugins mit Caret, `composer.lock` committed; Bumps als PR (Dependabot `composer`). Der Sprung auf die nächste WordPress-Nebenfassung ist ein eigener PR mit Blick in die Release-Notizen und einem Lauf im lokalen Verbund.
+- Sprachpakete kommen beim Bau ins Abbild (`docker/sprachpakete.php` lädt Kern, Plugins und Themes in `de_DE` zur exakt installierten Fassung). Zur Laufzeit lädt WordPress keine — das ist die Kehrseite von `DISALLOW_FILE_MODS`.
+- CI-Reihenfolge: `composer install` → `composer lint` → `composer analyse` → `composer test` → `composer audit`. Keine Datenbank in der CI: Was eine laufende Site braucht (Anmeldung, Editor, Uploads, ein Plugin), wird im lokalen Verbund geprüft und im PR als Klickweg festgehalten.
+- Lokal: PHP 8.4 mit Composer für die Prüfungen; die Site selbst läuft nur im Docker-Verbund (`compose.dev.yaml`: Site unter `localhost:8080`, Theme und Mu-Plugins aus dem Arbeitsordner), denn ohne MariaDB gibt es kein WordPress. Windows: Git Bash, Composer aus Herd.
+
+## 4. Betriebsvertrag
+1. **Runtime:** `dunglas/frankenphp:1-php8.4` klassisch, Container als `www-data`. Ein Abbild, zwei Rollen: `app` (HTTP auf 8080) und `cron` (`wp cron event run --due-now` jede Minute; `DISABLE_WP_CRON` an, damit kein Besucher den Cron auslöst). `db` ist `mariadb:11.8` im internen Netz. Der Edge-Caddy des Hosts terminiert TLS; `X-Forwarded-Proto` wird in `config/application.php` zu `HTTPS`. wp-cli liegt im Abbild, gepinnt über das Build-Arg `WP_CLI_VERSION`.
+2. **Konfiguration:** nur ENV, gelesen in `config/application.php`; `.env.example` ist das Schema mit Kommentar je Schlüssel. `WP_HOME` ist die öffentliche Adresse, WordPress liegt darunter in `/wp` (Anmeldung `/wp/wp-login.php`). Acht Salts und das Datenbank-Passwort je Instanz einmal erzeugen → KeePassXC. Kein `wp-config.php` mit Werten.
+3. **Health:** `GET /healthz` aus dem Mu-Plugin → `{"status":"ok","version":"…"}`; beweist PHP und Datenbank. Compose-Healthcheck und `deploy/update.sh` zeigen darauf.
+4. **Logs:** Caddy-Zugriffsprotokoll als JSON nach stderr (`/healthz` ausgenommen), PHP-Fehler nach stderr, `WP_DEBUG_LOG` aus in Produktion. Keine PII: keine Kommentare, kein Tracking.
+5. **Version im Produkt:** Build-Arg `APP_IMAGE_VERSION` → `<meta name="app-version">` im HTML, Fußzeile des Admins, `/healthz`. Die Instanz pinnt den Image-Tag über `APP_VERSION` in ihrer `.env`.
+6. **Lieferung:** wie im Kern — `release.yml` → GHCR (`X.Y.Z`, `X.Y`, `sha-…`, kein `latest`), Server ziehen per `deploy/update.sh <tag>` (Backup → Pull → `up -d --wait` → `wp core update-db` → `/healthz` mit Fassung). Ein neues Abbild **ist** das WordPress-Update: Kern und Plugins wechseln mit dem Tag, nie über den Admin.
+7. **Daten:** Volumes `db_data` und `app_uploads`. `deploy/backup.sh` = `mariadb-dump --single-transaction` (gzip, Prüfung auf Tabellen) plus Archiv der Uploads, vor jedem Update, vierzehn Tage, Dateien mit 600. Der Rückweg ist der alte Tag; hat `update-db` das Schema schon gehoben, dazu das Einspielen der Sicherung.
+8. **Erstinstallation:** `deploy/install.sh` = `wp core install` mit erzeugtem Admin-Passwort (einmal ausgegeben → KeePassXC, kein Benutzer `admin`), Deutsch, `Europe/Vienna`, Permalinks `/%postname%/`, Kommentare aus, Beispielinhalt weg, Startseite sowie leere Seiten für Impressum und Datenschutz, Suchmaschinen gesperrt bis zur Freigabe (`blog_public`).
+9. **Qualitätsgates:** `composer check` ohne Befund; jedes Plugin mit ADR; `/healthz` grün mit der erwarteten Fassung nach jedem Update; Impressum und Datenschutzerklärung befüllt, bevor `blog_public` auf 1 geht.
+
+## 5. Fallen (stack-typisch)
+- `WP_HOME`/`WP_SITEURL` aus ENV schlagen `wp_options` — ein Umzug heißt ENV ändern. Absolute Adressen in Inhalten (Bilder in Beiträgen) bleiben trotzdem stehen: `wp search-replace alt neu` beim Umzug.
+- Hinter dem Edge-Caddy ohne die `HTTPS`-Weiche in `config/application.php`: Umleitungsschleife auf `/wp/wp-admin`, Cookies ohne `secure`. Nicht entfernen.
+- `DISALLOW_FILE_MODS` blendet auch Sprachpaket-Updates und die Seite „Plugins installieren“ aus — gewollt, kein Fehler. Englische Oberfläche heißt: Sprachpaket fehlt im Abbild, nicht „Update klicken“.
+- Nach einem Kern-Sprung ohne `wp core update-db` zeigt der Admin „Datenbank-Update erforderlich“, und Redakteure klicken. `deploy/update.sh` macht es; von Hand nur mit Sicherung davor.
+- Uploads gehören `www-data`. Ein `docker run` als Root, das in das Volume schreibt, hinterlässt Dateien, die WordPress nicht mehr anfassen kann („Upload fehlgeschlagen“). `deploy/backup.sh` liest nur.
+- WordPress liegt unter `/wp/`: Anmeldung `/wp/wp-login.php`, Admin `/wp/wp-admin/`. Links auf `/wp-admin` ohne Präfix laufen ins Leere — das ist Bedrock, kein Fehler.
+- Nicht jedes Plugin hat eine deutsche Übersetzung bei wordpress.org; `docker/sprachpakete.php` überspringt es mit Hinweis. Dann ist das Plugin auf Englisch, nicht kaputt.
+- `Error establishing a database connection`: `DB_HOST` ist der Dienstname `db`, nicht `127.0.0.1` — und `docker compose ps db` zuerst.
+- Kein Page-Cache-Plugin ohne Entscheidung: Caddy komprimiert, Statisches trägt Cache-Header; erst messen, dann cachen.

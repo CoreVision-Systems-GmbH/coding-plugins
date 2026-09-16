@@ -1,0 +1,66 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/theme.json",
+	"version": 3,
+	"settings": {
+		"appearanceTools": true,
+		"layout": {
+			"contentSize": "44rem",
+			"wideSize": "72rem"
+		},
+		"color": {
+			"defaultPalette": false,
+			"palette": [
+				{ "slug": "grund", "name": "Grund", "color": "#ffffff" },
+				{ "slug": "text", "name": "Text", "color": "#1c1c1c" },
+				{ "slug": "akzent", "name": "Akzent", "color": "#0a5bd3" },
+				{ "slug": "leise", "name": "Leise", "color": "#f2f2f2" }
+			]
+		},
+		"typography": {
+			"fontFamilies": [
+				{
+					"slug": "system",
+					"name": "System",
+					"fontFamily": "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+				}
+			],
+			"fontSizes": [
+				{ "slug": "small", "name": "Klein", "size": "0.9rem" },
+				{ "slug": "medium", "name": "Normal", "size": "1.0625rem" },
+				{ "slug": "large", "name": "Groß", "size": "1.5rem" },
+				{ "slug": "x-large", "name": "Sehr groß", "size": "2.25rem" }
+			]
+		},
+		"spacing": {
+			"units": [ "rem", "px", "%" ]
+		}
+	},
+	"styles": {
+		"color": {
+			"background": "var(--wp--preset--color--grund)",
+			"text": "var(--wp--preset--color--text)"
+		},
+		"typography": {
+			"fontFamily": "var(--wp--preset--font-family--system)",
+			"fontSize": "var(--wp--preset--font-size--medium)",
+			"lineHeight": "1.6"
+		},
+		"spacing": {
+			"padding": {
+				"left": "1.25rem",
+				"right": "1.25rem"
+			}
+		},
+		"elements": {
+			"link": {
+				"color": {
+					"text": "var(--wp--preset--color--akzent)"
+				}
+			}
+		}
+	},
+	"templateParts": [
+		{ "name": "header", "title": "Kopf", "area": "header" },
+		{ "name": "footer", "title": "Fuß", "area": "footer" }
+	]
+}

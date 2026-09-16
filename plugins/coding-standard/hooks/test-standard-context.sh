@@ -21,6 +21,7 @@ pruefe() { # <name> <projektdir> <erwartung> [env]
         beide)   grep -q 'Stack erkannt: laravel fastapi' <<<"$out" && grep -q 'stacks/laravel.md' <<<"$out" && grep -q 'stacks/fastapi.md' <<<"$out" ;;
         nextjs)  grep -q 'Stack erkannt: nextjs)' <<<"$out" && grep -q 'stacks/nextjs.md' <<<"$out" && ! grep -q 'kein Overlay' <<<"$out" && ! grep -q 'stacks/astro.md' <<<"$out" ;;
         astro)   grep -q 'Stack erkannt: astro)' <<<"$out" && grep -q 'stacks/astro.md' <<<"$out" && ! grep -q 'stacks/laravel.md' <<<"$out" ;;
+        wordpress) grep -q 'Stack erkannt: wordpress)' <<<"$out" && grep -q 'stacks/wordpress.md' <<<"$out" && ! grep -q 'stacks/laravel.md' <<<"$out" ;;
         script)  grep -q 'Stack erkannt: script)' <<<"$out" && grep -q 'stacks/script.md' <<<"$out" ;;
         marker2) grep -q 'Stack erkannt: laravel script' <<<"$out" && grep -q 'stacks/laravel.md' <<<"$out" && grep -q 'stacks/script.md' <<<"$out" ;;
     esac
@@ -58,6 +59,12 @@ pruefe "Next.js erkannt, Ausnahme-Overlay geladen" "$d" nextjs
 d="$tmp/astro"; aktiviert "$d"; echo '{"dependencies":{"astro":"^6.0.0"}}' > "$d/package.json"
 pruefe "Astro erkannt" "$d" astro
 
+d="$tmp/wordpress-bedrock"; aktiviert "$d"; echo '{"require":{"roots/wordpress":"~7.1.0","roots/wp-config":"^1.0"}}' > "$d/composer.json"
+pruefe "WordPress erkannt (Bedrock, composer.json)" "$d" wordpress
+
+d="$tmp/wordpress-bestand"; aktiviert "$d"; printf '<?php\ndefine("DB_NAME", "bestand");\n' > "$d/wp-config.php"
+pruefe "WordPress erkannt (Bestand, wp-config.php)" "$d" wordpress
+
 d="$tmp/marker-script"; mkdir -p "$d"; printf 'stack: script\n' > "$d/.coding-standard"
 pruefe "Markerdatei nennt den Stack (script)" "$d" script
 
@@ -67,6 +74,17 @@ pruefe "Marker ergänzt, doppelter Stack nur einmal" "$d" marker2
 
 d="$tmp/aus"; aktiviert "$d"
 pruefe "Notausgang CODING_STANDARD_OFF=1" "$d" leer "CODING_STANDARD_OFF=1"
+
+# --stacks: Erkennung ohne Erklärung, nur die Namen (für projekt-aufnehmen.sh).
+d="$tmp/nur-stacks"; mkdir -p "$d"; echo '{"require":{"laravel/framework":"^13"}}' > "$d/composer.json"; printf 'stack: script\n' > "$d/.coding-standard"
+out="$(cd "$d" && env CLAUDE_PLUGIN_ROOT="$root" CLAUDE_PROJECT_DIR="$d" bash "$hier/standard-context.sh" --stacks)"
+if [ "$out" = "laravel script" ]; then echo "ok    --stacks nennt nur die Stacks"; else echo "FEHLER --stacks nennt nur die Stacks (Ausgabe: $out)"; fehler=$((fehler+1)); fi
+d="$tmp/nur-stacks-unerklaert"; mkdir -p "$d"; echo '{"dependencies":{"astro":"^7.0.0"}}' > "$d/package.json"
+out="$(cd "$d" && env CLAUDE_PLUGIN_ROOT="$root" CLAUDE_PROJECT_DIR="$d" bash "$hier/standard-context.sh" --stacks)"
+if [ "$out" = "astro" ]; then echo "ok    --stacks auch ohne Erklärung"; else echo "FEHLER --stacks auch ohne Erklärung (Ausgabe: $out)"; fehler=$((fehler+1)); fi
+d="$tmp/nur-stacks-leer"; mkdir -p "$d"
+out="$(cd "$d" && env CLAUDE_PLUGIN_ROOT="$root" CLAUDE_PROJECT_DIR="$d" bash "$hier/standard-context.sh" --stacks)"
+if [ -z "$out" ]; then echo "ok    --stacks ohne Treffer: leer"; else echo "FEHLER --stacks ohne Treffer: leer (Ausgabe: $out)"; fehler=$((fehler+1)); fi
 
 # Größe: Claude Code blendet Hook-Ausgaben über ~2 KB nur als Vorschau ein.
 d="$tmp/groesse"; aktiviert "$d"; echo '{"require":{"laravel/framework":"^13"}}' > "$d/composer.json"; printf 'fastapi==0.115.6\n' > "$d/requirements.txt"

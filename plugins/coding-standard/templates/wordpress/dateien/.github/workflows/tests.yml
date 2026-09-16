@@ -1,0 +1,50 @@
+name: tests
+
+# Der verpflichtende Status-Check heißt `ci` (siehe Ruleset des Repos). Der
+# Auftrag darf deshalb nicht umbenannt werden, ohne das Ruleset nachzuziehen.
+#
+# Ohne Datenbank: Geprüft werden Coding-Standards, statische Analyse und die
+# Struktur (Theme, ENV-Schema). Was eine laufende Site braucht, wird im lokalen
+# Verbund geprüft (compose.dev.yaml) und im PR als Klickweg festgehalten.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, intl, zip, mysqli
+          tools: composer:v2
+          coverage: none
+
+      - name: Abhängigkeiten installieren
+        run: composer install --no-interaction --no-progress
+
+      - name: Coding-Standards
+        run: composer lint
+
+      - name: Statische Analyse
+        run: composer analyse
+
+      - name: Strukturprüfung
+        run: composer test
+
+      - name: Sicherheitshinweise der Abhängigkeiten
+        run: composer audit

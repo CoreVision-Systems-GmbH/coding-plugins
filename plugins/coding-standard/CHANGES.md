@@ -7,13 +7,46 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [0.7.0] — 2026-09-16
+
 ### Hinzugefügt
 
+- **Stack `wordpress`** — für redaktionell gepflegte Websites, deren Inhalte der Kunde selbst im
+  Browser pflegt (Firmenseite, Landingpages, Blog). Overlay `stacks/wordpress.md`, Register
+  `templates/wordpress/`: WordPress 7 im Bedrock-Layout als Composer-Abhängigkeit, MariaDB 11.8
+  (bewusste Abweichung von PostgreSQL, nur für diesen Stack), FrankenPHP als `www-data` mit den
+  Rollen `app` und `cron`, Block-Theme `site`, Mu-Plugin `firmenstandard` (`/healthz` mit
+  Fassung, Härtung), kein Code aus dem Admin (`DISALLOW_FILE_MODS`, Plugins nur per Composer aus
+  `repo.wp-packages.org`), deutsche Sprachpakete beim Bau ins Abbild, `deploy/install.sh` mit
+  Erstinstallation (Admin-Passwort einmalig über stdin, Deutsch, Zeitzone, Pflichtseiten,
+  Suchmaschinen gesperrt), `deploy/backup.sh` mit `mariadb-dump` und Uploads, `deploy/update.sh`
+  mit `wp core update-db`; Prüfungen ohne Datenbank (PHPCS mit WordPress-Coding-Standards,
+  PHPStan Stufe 6 mit WordPress-Stubs, Strukturprüfung `tests/pruefe-struktur.php`);
+  lokaler Verbund über `compose.dev.yaml`. Skill `/wordpress`, Erkennung über `roots/wordpress`
+  in `composer.json` oder `wp-config.php` im Wurzelverzeichnis, Fälle in beiden Tests.
+- **Skill `/projekt-aufnehmen`** — Gegenstück zu `/projekt-neu` für Repos, die nicht mit dem
+  Standard entstanden sind. `scripts/projekt-aufnehmen.sh` macht eine Bestandsaufnahme in vier
+  Stufen (Erklärung, Kontext, Lieferweg, Betriebsvertrag — je Stack aus dem Overlay abgeleitet,
+  mit der Vorlage als Verweis) und legt mit `--apply` Stufe 0 und 1 an: `.claude/settings.json`,
+  `CLAUDE.md` mit den echten Befehlen aus `composer.json`, `package.json` und `Makefile`,
+  `CHANGES.md`, `docs/status.md` und eine ADR „Aufnahme in den Firmenstandard“ mit den Lücken
+  (`templates/aufnahme/`), PR-Vorlage, CODEOWNERS, CI-Durchsicht, Dependabot, die
+  `.claude/rules` des Stacks, `version.txt` aus dem letzten Tag, bei Stacks ohne Markerdatei
+  `.coding-standard`. Nur Fehlendes, nie überschreiben, nur bei sauberem Arbeitsbaum; kein
+  Umbau des Codes. Test `scripts/test-projekt-aufnehmen.sh`, Lesekopie `projekt-aufnehmen.MD`.
+- `standard-context.sh --stacks` gibt nur die erkannten Stacks aus, ohne Aktivierung — die
+  Erkennung gibt es damit nur an einer Stelle; das Aufnahme-Skript nutzt sie.
 - Einrichtungsskripte für neue Coder im Verteil-Repo: `setup/setup.ps1` (Windows) und
   `setup/setup.sh` (macOS/Linux/WSL) installieren Git, GitHub CLI und Claude Code, fügen den
   Marketplace hinzu, installieren das Plugin und prüfen — Vorhandenes wird übersprungen,
   `-DryRun`/`--dry-run` zeigt nur, `-GitHubLogin`/`--github-login` meldet gh an. README und
   Rechtetext des Verteil-Repos liegen jetzt unter `verteilung/` und werden mit veröffentlicht.
+
+### Geändert
+
+- Stack-Wahl-Regel in `/projekt-neu`, `/coding`, beiden READMEs und den Overlays `laravel`,
+  `astro` und `nextjs`: Pflegt der Kunde die Inhalte selbst im Browser, ist es `wordpress`;
+  pflegt ein Entwickler sie im Repo, bleibt es `astro`.
 
 ## [0.6.0] — 2026-09-14
 

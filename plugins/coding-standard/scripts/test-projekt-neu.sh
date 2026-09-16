@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prüft projekt-neu.sh: Argumentprüfung, Stack-Register und drei echte Proben.
+# Prüft projekt-neu.sh: Argumentprüfung, Stack-Register und vier echte Proben.
 #
 #     bash plugins/coding-standard/scripts/test-projekt-neu.sh
 #
@@ -8,7 +8,9 @@
 # FastAPI-Probe legt eine virtuelle Umgebung an und installiert die gepinnten
 # Abhängigkeiten — das dauert eine halbe bis eine Minute. Die Astro-Probe lädt
 # die npm-Abhängigkeiten aus dem Netz, baut die Site und prüft dist/ — noch
-# einmal etwa eine Minute.
+# einmal etwa eine Minute. Die WordPress-Probe installiert die Composer-
+# Abhängigkeiten samt WordPress-Kern und lässt PHPCS, PHPStan und die
+# Strukturprüfung laufen — ein bis zwei Minuten.
 #
 # Laravel ist bewusst nicht dabei: `laravel new` samt Filament braucht mehrere
 # Minuten und einen Composer-Cache. Diese Probe wird von Hand gefahren.
@@ -54,7 +56,7 @@ echo "== Argumente und Register"
 lauf 0 "--help endet sauber" --help
 lauf 0 "--list-stacks endet sauber" --list-stacks
 
-for s in laravel fastapi script astro; do
+for s in laravel fastapi script astro wordpress; do
     if grep -q "^  $s " <<<"$LETZTE_AUSGABE"; then
         ok "--list-stacks nennt $s"
     else
@@ -268,6 +270,80 @@ grep -q 'Wegwerfprobe des Bootstraps' "$pdir/dist/index.html" \
     && ok "dist/index.html trägt den Zweck" || nichtok "dist/index.html trägt den Zweck"
 grep -q 'lang="de"' "$pdir/dist/index.html" \
     && ok 'dist/index.html ist Deutsch (lang="de")' || nichtok 'dist/index.html ist Deutsch (lang="de")'
+
+# ------------------------------------------------------------- Probe wordpress
+echo
+echo "== Probe: Stack wordpress (mit composer install und composer check)"
+
+pdir="$tmp/probe-wordpress"
+lauf 0 "Projekt entsteht, Prüfungen grün" \
+    --name probe-wordpress --stack wordpress --owner musterorg \
+    --purpose "Wegwerfprobe des Bootstraps." --dir "$pdir" --no-github
+
+for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
+             compose.dev.yaml .env.example composer.json composer.lock wp-cli.yml \
+             phpcs.xml phpstan.neon \
+             config/application.php config/environments/development.php \
+             web/index.php web/wp-config.php web/wp/wp-settings.php \
+             web/app/mu-plugins/firmenstandard.php \
+             web/app/themes/site/style.css web/app/themes/site/theme.json \
+             web/app/themes/site/functions.php \
+             web/app/themes/site/templates/index.html \
+             web/app/themes/site/templates/singular.html \
+             web/app/themes/site/templates/404.html \
+             web/app/themes/site/parts/header.html \
+             web/app/themes/site/parts/footer.html \
+             tests/pruefe-struktur.php .claude/rules/site.md .claude/rules/tests.md \
+             docker/Caddyfile docker/php.ini docker/php.dev.ini docker/entrypoint.sh \
+             docker/sprachpakete.php \
+             deploy/install.sh deploy/update.sh deploy/backup.sh \
+             scripts/release-notes.sh \
+             .github/workflows/tests.yml .github/workflows/release.yml \
+             .github/dependabot.yml; do
+    [ -f "$pdir/$datei" ] && ok "vorhanden: $datei" || nichtok "fehlt: $datei"
+done
+
+grep -rlE '\{\{[A-Z_][A-Z0-9_]*\}\}' "$pdir" \
+    --exclude-dir=vendor --exclude-dir=wp >/dev/null 2>&1 \
+    && nichtok "keine unersetzten Platzhalter" \
+    || ok "keine unersetzten Platzhalter"
+
+grep -q 'ghcr.io/musterorg/probe-wordpress' "$pdir/compose.yaml" \
+    && ok "compose.yaml zeigt auf das richtige Abbild" \
+    || nichtok "compose.yaml zeigt auf das richtige Abbild"
+grep -q 'https://probe-wordpress.invalid' "$pdir/.env.example" \
+    && ok ".env.example trägt die Platzhalter-Domain" \
+    || nichtok ".env.example trägt die Platzhalter-Domain"
+grep -q 'DB_NAME=probe_wordpress' "$pdir/.env.example" \
+    && ok ".env.example: Datenbankname in snake_case" \
+    || nichtok ".env.example: Datenbankname in snake_case"
+grep -q '^Theme Name: probe-wordpress' "$pdir/web/app/themes/site/style.css" \
+    && ok "Theme trägt den Projektnamen" || nichtok "Theme trägt den Projektnamen"
+[ -f "$pdir/.coding-standard" ] \
+    && nichtok "wordpress braucht keine Markerdatei" || ok "wordpress braucht keine Markerdatei"
+grep -q 'WP_HOME' "$pdir/.projekt-neu-nacharbeit" 2>/dev/null \
+    && ok "Nacharbeit nennt WP_HOME" || nichtok "Nacharbeit nennt WP_HOME"
+
+anzahl="$(git -C "$pdir" rev-list --count HEAD 2>/dev/null || echo 0)"
+[ "$anzahl" = "1" ] && ok "genau ein Commit" || nichtok "genau ein Commit (gezählt: $anzahl)"
+git -C "$pdir" ls-files | grep -qE '^(vendor|web/wp)/' \
+    && nichtok "vendor und web/wp bleiben draußen" \
+    || ok "vendor und web/wp bleiben draußen"
+git -C "$pdir" ls-files --error-unmatch composer.lock >/dev/null 2>&1 \
+    && ok "composer.lock ist im Repo" || nichtok "composer.lock ist im Repo"
+git -C "$pdir" ls-files --error-unmatch web/app/themes/site/theme.json >/dev/null 2>&1 \
+    && ok "das eigene Theme ist im Repo" || nichtok "das eigene Theme ist im Repo"
+git -C "$pdir" ls-files --error-unmatch .projekt-neu-nacharbeit >/dev/null 2>&1 \
+    && nichtok "Nacharbeit-Datei bleibt draußen" || ok "Nacharbeit-Datei bleibt draußen"
+[ "$(git -C "$pdir" ls-files -s deploy/update.sh | cut -c1-6)" = "100755" ] \
+    && ok "Ausführbar-Bit im Index: deploy/update.sh" \
+    || nichtok "Ausführbar-Bit im Index: deploy/update.sh"
+[ "$(git -C "$pdir" ls-files -s docker/entrypoint.sh | cut -c1-6)" = "100755" ] \
+    && ok "Ausführbar-Bit im Index: docker/entrypoint.sh" \
+    || nichtok "Ausführbar-Bit im Index: docker/entrypoint.sh"
+
+hook_stacks "$pdir" | grep -q 'Stack erkannt: wordpress' \
+    && ok "Hook erkennt den Stack wordpress" || nichtok "Hook erkennt den Stack wordpress"
 
 echo
 if [ "$fehler" -eq 0 ]; then

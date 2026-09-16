@@ -1,0 +1,22 @@
+# Überlagerung für den Bau auf dem eigenen Rechner.
+#
+# Der reguläre Weg ist das Abbild aus GHCR (compose.yaml). Diese Datei ist nur für den
+# Fall gedacht, dass jemand das Abbild lokal bauen und ausprobieren will — ohne Tag,
+# ohne Registry:
+#
+#     APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml build
+#     APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml up -d
+#
+# Auf einem Kundenserver hat sie nichts verloren: Dort läuft nur, was aus einem Tag
+# gebaut und nachvollziehbar in der Registry liegt.
+
+services:
+    app:
+        build:
+            context: .
+            args:
+                APP_IMAGE_VERSION: local
+        image: {{NAME}}:local
+
+    cron:
+        image: {{NAME}}:local

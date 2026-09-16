@@ -1,0 +1,16 @@
+# Statische Analyse des eigenen Codes: Konfiguration, Mu-Plugins, Theme, Prüfskript.
+# WordPress selbst (web/wp) und Composer-Pakete werden nicht analysiert; ihre Signaturen
+# kommen aus php-stubs/wordpress-stubs über die Erweiterung phpstan-wordpress.
+includes:
+    - vendor/szepeviktor/phpstan-wordpress/extension.neon
+
+parameters:
+    level: 6
+    paths:
+        - config
+        - tests
+        - web/app/mu-plugins
+        - web/app/themes/site
+    excludePaths:
+        # Composer-installierte Pakete unterhalb der eigenen Ordner.
+        - web/app/mu-plugins/*/*

@@ -1,0 +1,12 @@
+/*
+Theme Name: {{NAME}}
+Description: Block-Theme der Site. Gestaltung in theme.json, Vorlagen unter templates/, Kopf und Fuß unter parts/.
+Author: {{COMPANY}}
+Version: 1.0.0
+Requires at least: 7.0
+Requires PHP: 8.4
+Text Domain: site
+License: proprietär
+*/
+
+/* Eigene Stile nur, wenn theme.json nicht reicht — und dann mit dem Warum daneben. */

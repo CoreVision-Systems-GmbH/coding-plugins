@@ -12,7 +12,7 @@ Ergänzt den Kern für öffentliche Content-Sites (Firmenseite, Landingpages, Do
 - Vor dem Code je Seite festhalten: `Adresse · Zweck · Titel/Beschreibung · Quelle des Inhalts`.
 
 ## 2. Grenzen (nicht verhandelbar)
-- Keine Anmeldung, keine personenbezogenen Daten, keine Formulare mit Serverlogik, keine Datenbank. Braucht ein Vorhaben davon etwas, ist es keine Content-Site — dafür gilt `laravel`.
+- Keine Anmeldung, keine personenbezogenen Daten, keine Formulare mit Serverlogik, keine Datenbank. Braucht ein Vorhaben davon etwas, ist es keine Content-Site — dafür gilt `laravel`. Sollen Redakteure die Inhalte selbst im Browser pflegen, ist es `wordpress`.
 - Keine Geheimnisse im Bau: Alles, was in `PUBLIC_*` oder im Quelltext steht, landet im ausgelieferten HTML.
 - Keine fremden Skripte ohne Entscheidung (Tracking, Schriften von Drittservern, Einbettungen): Jedes lädt Daten des Besuchers zu einem Dritten — ein Datenschutz-Thema, kein Handgriff.
 - Kein `set:html` mit Inhalten, die nicht aus dem eigenen Repo stammen.

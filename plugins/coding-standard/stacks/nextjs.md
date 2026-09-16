@@ -6,7 +6,7 @@ Next.js ist **kein** Stack des Firmenstandards: `/projekt-neu` bietet ihn nicht 
 2. Eine Anforderung, die Inertia SSR und Astro nicht liefern: Streaming/Partial Prerendering, ISR über mehrere Instanzen, personalisierte öffentliche Seiten unter Lastspitzen.
 3. Budget für den Zweitbetrieb: eigener Node-Prozess, monatlicher Patch-Takt, eigene Auth-Grenze.
 
-Für Firmenseite, Landingpages, Doku und Blog gilt `astro`; für Kundenportale mit Anmeldung `laravel` mit Inertia SSR. Auffindbarkeit und Ladezeit sind kein Grund: Google belohnt vollständiges HTML und gute Core Web Vitals, nicht ein Framework.
+Für Firmenseite, Landingpages, Doku und Blog gilt `astro` (pflegt der Kunde die Inhalte selbst: `wordpress`); für Kundenportale mit Anmeldung `laravel` mit Inertia SSR. Auffindbarkeit und Ladezeit sind kein Grund: Google belohnt vollständiges HTML und gute Core Web Vitals, nicht ein Framework.
 
 ## 1. Zuständigkeiten & Architektur
 - App Router mit React Server Components; keine Mischung mit dem Pages Router. `proxy.ts` (ehemals `middleware.ts`) ist kein Sicherheitsrand: Autorisierung passiert in Route Handlers, Server Actions und der Datenzugriffsschicht — an jeder Stelle einzeln.

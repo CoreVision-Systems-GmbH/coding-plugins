@@ -18,6 +18,7 @@ das dann nur und fährt zusätzlich die Startroutine.
    - `composer.json` mit `laravel/framework` → `laravel.md`
    - `requirements*.txt` oder `pyproject.toml` mit `fastapi` → `fastapi.md`
    - `package.json` mit `astro` → `astro.md`
+   - `composer.json` mit `roots/wordpress` oder eine `wp-config.php` im Wurzelverzeichnis → `wordpress.md`
    - `package.json` mit `next` → `nextjs.md` (Ausnahme-Overlay, gilt für den Bestand)
    - `.coding-standard` mit `stack: <name>` → `<name>.md` (z. B. `script`)
    Mehrere Treffer → mehrere Overlays. Kein Treffer → sag es; dann gilt nur der Kern.

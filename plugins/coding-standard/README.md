@@ -14,7 +14,7 @@ sobald ein Repo ihn erklärt:
 | Schicht | Datei | Umfang | Inhalt |
 |---|---|---|---|
 | **Kern** | `core/kern.md` | ≈ 50 Zeilen | Wie wir arbeiten, unabhängig vom Stack: Denken vor Code, Umsetzen, Beweis statt Behauptung, Git & Lieferung, Doku & Kontext, Definition of Done. Kein Framework-Wort. |
-| **Stack-Overlay** | `stacks/<stack>.md` | ≤ 120 Zeilen | Firmenentscheidungen für einen Stack: Zuständigkeiten & Architektur, Grenzen, Werkzeugkette, Betriebsvertrag, stack-typische Fallen. Heute `laravel.md`, `fastapi.md`, `script.md` und `astro.md`, dazu `nextjs.md` als Ausnahme-Overlay für den Bestand; `_vorlage.md` für neue Stacks. |
+| **Stack-Overlay** | `stacks/<stack>.md` | ≤ 120 Zeilen | Firmenentscheidungen für einen Stack: Zuständigkeiten & Architektur, Grenzen, Werkzeugkette, Betriebsvertrag, stack-typische Fallen. Heute `laravel.md`, `fastapi.md`, `script.md`, `astro.md` und `wordpress.md`, dazu `nextjs.md` als Ausnahme-Overlay für den Bestand; `_vorlage.md` für neue Stacks. |
 
 **Erklärt** ist ein Repo, wenn `coding-standard@corevision` in seiner `.claude/settings.json`
 steht (die Vorlage `templates/repo/.claude/settings.json` bringt das mit) oder eine
@@ -33,6 +33,7 @@ unter 1,8 KB (im Test abgesichert); das Lesen kostet einen Werkzeugaufruf pro Se
 | `composer.json` mit `laravel/framework` | `laravel.md` |
 | `requirements*.txt` oder `pyproject.toml` mit `fastapi` | `fastapi.md` |
 | `package.json` mit `astro` | `astro.md` |
+| `composer.json` mit `roots/wordpress` oder eine `wp-config.php` im Wurzelverzeichnis | `wordpress.md` |
 | `package.json` mit `next` | `nextjs.md` (Ausnahme mit Auflagen — kein Stack für `/projekt-neu`) |
 | `.coding-standard` mit einer Zeile `stack: <name>` | `<name>.md` |
 
@@ -67,9 +68,12 @@ Daily-Log-Zeile → Abschlussbericht mit den offenen Handgriffen.
 | datennah — Datenmodell, Rechte, Verwaltung, Nutzerkonten, Formulare mit Serverlogik | `laravel` (das Arbeitspferd; im Zweifel dieser) |
 | Dienst mit JSON-Schnittstelle ohne eigene Oberfläche | `fastapi` |
 | Werkzeug ohne Laufzeit — Wartungslauf, Auswertung, Server-Handgriff | `script` |
-| öffentliche Content-Site — Firmenseite, Landingpages, Doku, Blog | `astro` |
+| öffentliche Content-Site — Firmenseite, Landingpages, Doku, Blog; ein Entwickler pflegt die Inhalte im Repo | `astro` |
+| redaktionell gepflegte Website — Firmenseite, Landingpages, Blog; der Kunde pflegt die Inhalte selbst im Browser | `wordpress` |
 
-Innerhalb von `laravel` entscheidet das Overlay die Fläche: Filament für interne Verwaltung,
+Zwischen `astro` und `wordpress` entscheidet, wer die Inhalte pflegt; sobald Anmeldung für
+Endnutzer, Shop oder Portal dazukommen, ist es `laravel` — WordPress ist die Website, nicht das
+Produkt. Innerhalb von `laravel` entscheidet das Overlay die Fläche: Filament für interne Verwaltung,
 Inertia + React nur bei mindestens zwei von vier Kriterien (Client-State, unverzichtbare
 npm-Bibliothek, öffentliches Marken-UI, gesicherte React-Kompetenz), öffentliche Seiten mit
 SSR. **Next.js** ist kein Stack, sondern eine Ausnahme mit drei Bedingungen und Auflagen
@@ -95,6 +99,30 @@ templates/_vorlage/           Kopiervorlage für einen neuen Stack
 `hooks/test-standard-context.sh` und `scripts/test-projekt-neu.sh`; bei Bedarf einen dünnen
 Skill `skills/<name>/SKILL.md` nach dem Muster von `skills/fastapi/`.
 
+## Bestehendes Projekt: `/projekt-aufnehmen`
+
+Gegenstück zu `/projekt-neu` für Repos mit eigener Geschichte. Nichts wird umgebaut: Der
+Standard verlangt die Regeln des Kerns, keine Ordnerstruktur; das Overlay gilt sinngemäß, und
+was abweicht, wird aufgeschrieben. Eine Insel ist ein Projekt nicht, weil es anders gebaut ist,
+sondern weil niemand aufgeschrieben hat, was anders ist und warum.
+
+```bash
+bash scripts/projekt-aufnehmen.sh --dir <pfad>            # Bestandsaufnahme, ändert nichts
+bash scripts/projekt-aufnehmen.sh --dir <pfad> --apply \  # Stufe 0 und 1 anlegen
+     --owner <owner> --purpose "<Zweck>" [--customer …] [--company …] [--stack …] [--vault …]
+```
+
+| Stufe | Was | Wer |
+|---|---|---|
+| 0 Erklärung | `.claude/settings.json`; bei Stacks ohne Markerdatei `.coding-standard` | Skript |
+| 1 Kontext | gemeinsame Dateien aus `templates/repo`: `CLAUDE.md` mit den echten Befehlen aus `composer.json`, `package.json`, `Makefile`; `CHANGES.md`; `docs/status.md` und ADR „Aufnahme in den Firmenstandard“ (`templates/aufnahme/`) mit den Lücken; PR-Vorlage, CODEOWNERS, CI-Durchsicht, Dependabot; `.claude/rules` des Stacks; `version.txt` aus dem letzten Tag | Skript, Claude prüft nach |
+| 2 Lieferweg | Dockerfile, Compose, `deploy/`, `release.yml` | eigener PR — nur berichtet, mit Vorlage als Verweis |
+| 3 Betriebsvertrag | je Stack aus dem Overlay: Fassung im Produkt, Health, TrustProxies, Prüfbefehle | eigene PRs — nur berichtet |
+
+Das Skript liest ohne `--apply` nur; mit `--apply` legt es ausschließlich Dateien an, die
+fehlen, verlangt einen sauberen Arbeitsbaum und überschreibt nie. Die Stack-Erkennung kommt
+aus dem Hook (`standard-context.sh --stacks`), damit es sie nur an einer Stelle gibt.
+
 ## Skills
 
 Alle Skills sind auf `disable-model-invocation: true` gesetzt — Claude zieht sie **nicht**
@@ -103,10 +131,12 @@ von selbst heran. Sie werden ausschließlich vom Menschen aufgerufen.
 | Skill | Aufruf | Zweck |
 |---|---|---|
 | `projekt-neu` | `/projekt-neu [name]` | Neues Projekt nach Firmenstandard: ein gebündeltes Interview, dann `scripts/projekt-neu.sh` (Gerüst, Vorlagen, Repo, Vault), bei Laravel die Firmenstandard-Nacharbeit, zum Schluss die offenen Handgriffe. |
+| `projekt-aufnehmen` | `/projekt-aufnehmen [pfad]` | Bestehendes Projekt in den Standard aufnehmen: Bestandsaufnahme in vier Stufen (`scripts/projekt-aufnehmen.sh`), Erklärung und Kontext-Dateien anlegen — nie überschreiben —, ADR mit den Lücken, PR. Kein Umbau des Codes. |
 | `coding` | `/coding [Aufgabe]` | Kern und Overlay **von Hand** laden und die Startroutine fahren (`CLAUDE.md`, `CHANGES.md`, `docs/status.md`, letzte Commits, offene PRs). Nötig nur in Sessions ohne automatische Aktivierung (Cowork, Repo ohne Erklärung) oder zum bewussten Nachladen. |
 | `laravel` | `/laravel [Aufgabe]` | Stack-Overlay Laravel von Hand laden, Fassungen feststellen, UI-Flächen-Entscheid. |
 | `fastapi` | `/fastapi [Aufgabe]` | Stack-Overlay FastAPI von Hand laden, Fassungen und Abweichungen feststellen. |
 | `astro` | `/astro [Aufgabe]` | Stack-Overlay Astro von Hand laden, Fassungen und Abweichungen feststellen. |
+| `wordpress` | `/wordpress [Aufgabe]` | Stack-Overlay WordPress von Hand laden, Fassungen, Plugins ohne ADR und Abweichungen feststellen. |
 | `release` | `/release [major\|minor\|patch\|X.Y.Z]` | Version aus den Commits vorschlagen, `CHANGES.md` abschließen, Release-PR durch die CI, Tag und GitHub-Release anlegen, Image-Referenz berichten. |
 | `deploy-check` | `/deploy-check <kunde>/<produkt> <tag>` | Prüfliste vor dem Update einer Kundeninstanz: Ziel-Tag, Migrationen, ENV-Schlüssel, Drift, Sicherung, Gesundheit. Führt **kein** Update aus. |
 | `pr` | `/pr [Hinweis]` | Draft-PR aus dem aktuellen Branch: Titel als Conventional Commit, Body nach der PR-Vorlage, CI-Status abrufen. Merged nicht. |
@@ -198,18 +228,23 @@ plugins/coding-standard/
   stacks/fastapi.md               Overlay FastAPI
   stacks/script.md                Overlay Skripte und Werkzeuge
   stacks/astro.md                 Overlay Astro (öffentliche Content-Sites)
+  stacks/wordpress.md             Overlay WordPress (redaktionell gepflegte Websites)
   stacks/nextjs.md                Ausnahme-Overlay Next.js (Bestand)
   stacks/_vorlage.md              Vorlage für neue Stacks
   skills/projekt-neu/SKILL.md     neues Projekt nach Firmenstandard
+  skills/projekt-aufnehmen/SKILL.md  bestehendes Projekt in den Standard aufnehmen
   skills/coding/SKILL.md          manueller Schalter Kern + Overlay + Startroutine
   skills/laravel/SKILL.md         manueller Schalter Overlay Laravel
   skills/fastapi/SKILL.md         manueller Schalter Overlay FastAPI
   skills/astro/SKILL.md           manueller Schalter Overlay Astro
+  skills/wordpress/SKILL.md       manueller Schalter Overlay WordPress
   skills/release/SKILL.md
   skills/deploy-check/SKILL.md
   skills/pr/SKILL.md
   scripts/projekt-neu.sh          Bootstrap eines neuen Projekts
   scripts/test-projekt-neu.sh
+  scripts/projekt-aufnehmen.sh    Bestandsaufnahme und Aufnahme eines bestehenden Projekts
+  scripts/test-projekt-aufnehmen.sh
   hooks/hooks.json                SessionStart → standard-context.sh, PreToolUse → git-guard.sh
   hooks/standard-context.sh       lädt Kern + Overlays automatisch
   hooks/test-standard-context.sh
@@ -217,8 +252,9 @@ plugins/coding-standard/
   hooks/test-git-guard.sh
   agents/*.md
   templates/repo/                 gemeinsame Projektvorlagen
-  templates/laravel|fastapi|script|astro/   Stack-Register, Gerüst, Dateien
+  templates/laravel|fastapi|script|astro|wordpress/   Stack-Register, Gerüst, Dateien
   templates/_vorlage/             Kopiervorlage für einen neuen Stack
+  templates/aufnahme/             ADR und Status für die Aufnahme eines Bestands
   templates/pull_request_template.md  PR-Vorlage dieses Repos
   CHANGES.md
 ```
@@ -229,4 +265,5 @@ Tests vor jedem Commit an Hooks oder Bootstrap:
 bash plugins/coding-standard/hooks/test-standard-context.sh
 bash plugins/coding-standard/hooks/test-git-guard.sh
 bash plugins/coding-standard/scripts/test-projekt-neu.sh
+bash plugins/coding-standard/scripts/test-projekt-aufnehmen.sh
 ```
