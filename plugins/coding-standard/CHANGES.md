@@ -7,6 +7,14 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [0.8.1] — 2026-09-22
+
+### Geändert
+
+- Stack-Regeln `fastapi` und `nextjs` ohne PCN-Repos als Beispiele.
+- Die Lesekopien nach dem Release (`scripts/nach-release.sh`) liegen jetzt im OneDrive der
+  CoreVision Systems GmbH, Ordner „Standards“.
+
 ## [0.8.0] — 2026-09-22
 
 ### Hinzugefügt

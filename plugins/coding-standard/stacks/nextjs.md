@@ -1,6 +1,6 @@
 # Stack-Overlay Next.js — Ausnahme mit Auflagen
 
-Next.js ist **kein** Stack des Firmenstandards: `/projekt-neu` bietet ihn nicht an. Dieses Overlay gilt für den Bestand (z. B. `pcn-projektmanagement`) und für die Ausnahme, die der Nutzer ausdrücklich entscheidet, wenn **alle drei** Bedingungen zutreffen:
+Next.js ist **kein** Stack des Firmenstandards: `/projekt-neu` bietet ihn nicht an. Dieses Overlay gilt für den Bestand und für die Ausnahme, die der Nutzer ausdrücklich entscheidet, wenn **alle drei** Bedingungen zutreffen:
 
 1. Öffentlich indexierbar **und** ein bezifferbares Conversion- oder Umsatzziel.
 2. Eine Anforderung, die Inertia SSR und Astro nicht liefern: Streaming/Partial Prerendering, ISR über mehrere Instanzen, personalisierte öffentliche Seiten unter Lastspitzen.

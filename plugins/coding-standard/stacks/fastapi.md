@@ -1,6 +1,6 @@
 # Stack-Overlay FastAPI — Python 3.12
 
-Ergänzt den Kern für FastAPI-Dienste (z. B. pcn-mgmt, corevision-mak, corevision-mon). Hier stehen Firmenentscheidungen; Bibliotheks-Idiome kommen aus der offiziellen Dokumentation.
+Ergänzt den Kern für FastAPI-Dienste (z. B. corevision-mak, corevision-mon). Hier stehen Firmenentscheidungen; Bibliotheks-Idiome kommen aus der offiziellen Dokumentation.
 
 ## 1. Zuständigkeiten & Architektur
 - Paket `app/`: `main.py` (App-Aufbau, Router-Registrierung, `/healthz`), `settings.py` (die **eine** Stelle für Konfiguration), `auth.py` (Zugang), fachliche Module unter `app/modules/<thema>/` mit `router.py`, `service.py`, `schemas.py`, bei Bedarf `repo.py`.
