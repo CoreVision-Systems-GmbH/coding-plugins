@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# edge-site — schließt eine Anwendung an den Edge-Caddy dieses Servers an.
+#
+#   sudo edge-site add <host> <container>:<port>   Site anlegen, DNS-Eintrag, Zertifikat
+#   sudo edge-site remove <host>                   Site entfernen (DNS-Eintrag bleibt)
+#   sudo edge-site list                            angeschlossene Sites
+#   sudo edge-site check <host>                    DNS, Zertifikat, HTTP-Status prüfen
+#
+# Auf einem Dev-Server (Rolle dev) wird dem Hostnamen „dev.“ vorangestellt:
+#   edge-site add app.example.at app-dev-app:8080   →   https://dev.app.example.at
+#
+# DNS nach der Einstellung aus setup-server.sh (/etc/corevision/server.env):
+#   hetzner, cloudflare  A-Record über die API des Anbieters; Zertifikat über DNS-01 per API
+#   acmedns              Registrierung beim acme-dns-Server; A-Record und ein CNAME werden als
+#                        Handgriff genau ausgegeben — danach erneuert Caddy allein
+#
+# Was es NICHT tut: DNS-Einträge löschen, Anwendungen starten, Ports öffnen.
+# Rückweg: edge-site remove <host>.
+
+{
+set -euo pipefail
+
+W="${SERVER_WURZEL:-}"
+KONF="$W/etc/corevision/server.env"
+EDGE="$W/opt/edge"
+SITES="$EDGE/caddy/sites"
+ACMEDNS_DIR="$EDGE/caddy/acmedns"
+
+hilfe() { sed -n '2,/^# Rückweg/p' "$0" | sed 's/^# \{0,1\}//'; }
+abbruch() { printf 'FEHLER  %s\n' "$1" >&2; exit 1; }
+ok()      { printf '   ok      %s\n' "$1"; }
+tun()     { printf '   mache   %s\n' "$1"; }
+hand()    { printf '   HAND    %s\n' "$1"; }
+
+[ $# -ge 1 ] || { hilfe; exit 1; }
+befehl="$1"; shift
+case "$befehl" in --help|-h) hilfe; exit 0 ;; esac
+
+[ -f "$KONF" ] || abbruch "$KONF fehlt — zuerst setup-server.sh ausführen."
+wert() { sed -n "s/^$1=//p" "$KONF" | head -1; }
+ROLLE="$(wert ROLLE)"; DNS="$(wert DNS)"; ZIEL_IP="$(wert ZIEL_IP)"; ACMEDNS_URL="$(wert ACMEDNS_URL)"
+TOKEN="$(sed -n 's/^DNS_API_TOKEN=//p' "$EDGE/.env" 2>/dev/null | head -1 || true)"
+
+pruefe_host() {
+    printf '%s' "$1" | grep -qE '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$' \
+        || abbruch "Kein gültiger Hostname: $1 (Kleinbuchstaben, z. B. app.example.at)"
+}
+voller_name() {
+    # Dev-Server: Anwendungen erscheinen unter dev.<host>; ein schon vorhandenes dev. bleibt.
+    case "$ROLLE:$1" in dev:dev.*|prod:*) printf '%s' "$1" ;; dev:*) printf 'dev.%s' "$1" ;; esac
+}
+edge_compose() { docker compose -f "$EDGE/compose.yaml" "$@"; }
+neu_laden() {
+    edge_compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 || return 1
+    edge_compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null
+}
+
+# --------------------------------------------------------------- DNS über API
+api() { # api <methode> <url> [json] — gibt den Antworttext aus, Fehlercode ≠ 0 bei HTTP ≥ 400
+    local m="$1" u="$2" d="${3:-}"
+    # Der Token geht über stdin an curl (-H @-), nicht über die Kommandozeile: Die steht für jeden
+    # Benutzer des Servers in der Prozessliste.
+    if [ -n "$d" ]; then
+        printf 'Authorization: Bearer %s\n' "$TOKEN" \
+            | curl -fsS -X "$m" -H @- -H "Content-Type: application/json" --data "$d" "$u"
+    else
+        printf 'Authorization: Bearer %s\n' "$TOKEN" | curl -fsS -X "$m" -H @- "$u"
+    fi
+}
+
+# Zone finden: vom längsten Suffix zum kürzesten, bis der Anbieter eine Zone kennt.
+zone_suche() { # zone_suche <fqdn> <prüffunktion>
+    local rest="$1"
+    while printf '%s' "$rest" | grep -q '\.'; do
+        rest="${rest#*.}"
+        printf '%s' "$rest" | grep -q '\.' || break
+        if "$2" "$rest"; then printf '%s' "$rest"; return 0; fi
+    done
+    # auch die volle Domain selbst kann eine Zone sein
+    if "$2" "$1"; then printf '%s' "$1"; return 0; fi
+    return 1
+}
+
+hetzner_zone_da() { api GET "https://api.hetzner.cloud/v1/zones?name=$1" 2>/dev/null | jq -e '.zones | length > 0' >/dev/null; }
+hetzner_a_setzen() {
+    local fqdn="$1" zone name basis="https://api.hetzner.cloud/v1"
+    zone="$(zone_suche "$fqdn" hetzner_zone_da)" || abbruch "Keine Hetzner-Zone für $fqdn gefunden (Token-Rechte oder Zone prüfen)."
+    name="${fqdn%."$zone"}"; [ "$name" = "$fqdn" ] && name="@"
+    if api GET "$basis/zones/$zone/rrsets/$name/A" >/dev/null 2>&1; then
+        api POST "$basis/zones/$zone/rrsets/$name/A/actions/set_records" "{\"records\":[{\"value\":\"$ZIEL_IP\"}]}" >/dev/null
+    else
+        api POST "$basis/zones/$zone/rrsets" "{\"name\":\"$name\",\"type\":\"A\",\"ttl\":300,\"records\":[{\"value\":\"$ZIEL_IP\"}]}" >/dev/null
+    fi
+    tun "A-Record $fqdn → $ZIEL_IP (Hetzner, Zone $zone)"
+}
+
+cloudflare_zone_id() { api GET "https://api.cloudflare.com/client/v4/zones?name=$1" 2>/dev/null | jq -r '.result[0].id // empty'; }
+cloudflare_zone_da() { [ -n "$(cloudflare_zone_id "$1")" ]; }
+cloudflare_a_setzen() {
+    local fqdn="$1" zone id rec basis="https://api.cloudflare.com/client/v4" body
+    zone="$(zone_suche "$fqdn" cloudflare_zone_da)" || abbruch "Keine Cloudflare-Zone für $fqdn gefunden (Token braucht Zone.Zone:Read und Zone.DNS:Edit)."
+    id="$(cloudflare_zone_id "$zone")"
+    rec="$(api GET "$basis/zones/$id/dns_records?type=A&name=$fqdn" | jq -r '.result[0].id // empty')"
+    # proxied=false: Der Verkehr geht direkt zum Server; Cloudflare dient nur als DNS.
+    body="{\"type\":\"A\",\"name\":\"$fqdn\",\"content\":\"$ZIEL_IP\",\"ttl\":300,\"proxied\":false}"
+    if [ -n "$rec" ]; then api PUT "$basis/zones/$id/dns_records/$rec" "$body" >/dev/null
+    else api POST "$basis/zones/$id/dns_records" "$body" >/dev/null; fi
+    tun "A-Record $fqdn → $ZIEL_IP (Cloudflare, Zone $zone)"
+}
+
+acmedns_registrieren() { # legt die Zugangsdaten für <fqdn> an, falls es sie noch nicht gibt
+    local fqdn="$1" datei="$ACMEDNS_DIR/$1.json" antwort
+    if [ ! -f "$datei" ]; then
+        antwort="$(curl -fsS -X POST "$ACMEDNS_URL/register")" || abbruch "Registrierung bei $ACMEDNS_URL gescheitert."
+        mkdir -p "$ACMEDNS_DIR"; chmod 700 "$ACMEDNS_DIR"
+        # Erst vollständig schreiben, dann an den Platz: Eine halbe Datei würde jeden weiteren
+        # Aufruf in die Irre führen (Registrierung übersprungen, Zugangsdaten leer).
+        ( umask 077; printf '%s' "$antwort" \
+            | jq -e --arg s "$ACMEDNS_URL" '{username, password, subdomain, fulldomain, server_url: $s}' > "$datei.neu" ) \
+            || { rm -f "$datei.neu"; abbruch "Unerwartete Antwort von $ACMEDNS_URL/register."; }
+        mv "$datei.neu" "$datei"; chmod 600 "$datei"
+        tun "bei acme-dns registriert: $datei"
+    fi
+    hand "DNS von Hand, einmalig: $fqdn A $ZIEL_IP"
+    hand "DNS von Hand, einmalig: _acme-challenge.$fqdn CNAME $(jq -r .fulldomain "$datei")."
+    hand "Danach: sudo edge-site check $1 — das erste Zertifikat kommt, sobald der CNAME sichtbar ist"
+}
+
+# ------------------------------------------------------------------ Befehle
+case "$befehl" in
+    add)
+        [ $# -eq 2 ] || abbruch "Aufruf: edge-site add <host> <container>:<port>"
+        pruefe_host "$1"
+        printf '%s' "$2" | grep -qE '^[a-zA-Z0-9][a-zA-Z0-9_.-]*:[0-9]{1,5}$' || abbruch "Ziel als <container>:<port>, z. B. app-app:8080"
+        fqdn="$(voller_name "$1")"; ziel="$2"
+        [ -n "$ZIEL_IP" ] || abbruch "ZIEL_IP fehlt in $KONF — setup-server.sh mit --ip erneut starten."
+        case "$DNS" in
+            hetzner|cloudflare)
+                [ -n "$TOKEN" ] || abbruch "DNS-Token fehlt in $EDGE/.env — setup-server.sh erneut starten."
+                "${DNS}_a_setzen" "$fqdn"
+                tls="	import tls_dns" ;;
+            acmedns)
+                acmedns_registrieren "$fqdn"
+                tls="	tls {
+		dns acmedns /etc/caddy/acmedns/$fqdn.json
+	}" ;;
+            *) abbruch "Unbekannter DNS-Weg in $KONF: $DNS" ;;
+        esac
+        datei="$SITES/$fqdn.caddy"
+        vorher=""; [ -f "$datei" ] && vorher="$(cat "$datei")"
+        mkdir -p "$SITES"
+        printf '# edge-site add %s %s\n%s {\n%s\n\tencode zstd gzip\n\treverse_proxy %s\n}\n' \
+            "$1" "$ziel" "$fqdn" "$tls" "$ziel" > "$datei"
+        if ! neu_laden; then
+            if [ -n "$vorher" ]; then printf '%s\n' "$vorher" > "$datei"; else rm -f "$datei"; fi
+            abbruch "Caddy lehnt die Konfiguration ab — nichts geändert. Prüfen: docker compose -f $EDGE/compose.yaml exec caddy caddy validate --config /etc/caddy/Caddyfile"
+        fi
+        ok "https://$fqdn → $ziel"
+        printf 'Das Zertifikat holt Caddy im Hintergrund (DNS-01, meist unter 2 Minuten). Kontrolle: sudo edge-site check %s\n' "$fqdn"
+        ;;
+    remove)
+        [ $# -eq 1 ] || abbruch "Aufruf: edge-site remove <host>"
+        pruefe_host "$1"
+        fqdn="$(voller_name "$1")"; datei="$SITES/$fqdn.caddy"
+        [ -f "$datei" ] || abbruch "Keine Site $fqdn angeschlossen."
+        rm -f "$datei"; neu_laden || abbruch "Neu laden gescheitert — Konfiguration prüfen."
+        ok "$fqdn entfernt (der DNS-Eintrag bleibt; bei Bedarf beim Anbieter löschen)"
+        ;;
+    list)
+        found=0
+        for f in "$SITES"/*.caddy; do
+            [ -f "$f" ] || continue; found=1
+            printf '%s\n' "$(sed -n '1s/^# edge-site add //p' "$f")"
+        done
+        [ $found -eq 1 ] || echo "Keine Sites angeschlossen."
+        ;;
+    check)
+        [ $# -eq 1 ] || abbruch "Aufruf: edge-site check <host>"
+        pruefe_host "$1"
+        fqdn="$(voller_name "$1")"; fehler=0
+        if [ -f "$SITES/$fqdn.caddy" ]; then ok "Site angeschlossen: $(sed -n '1s/^# edge-site add //p' "$SITES/$fqdn.caddy")"
+        else printf '   FEHLT   Site %s nicht angeschlossen\n' "$fqdn"; fehler=$((fehler + 1)); fi
+        ip="$(getent ahostsv4 "$fqdn" 2>/dev/null | awk 'NR==1{print $1}')"
+        if [ "$ip" = "$ZIEL_IP" ]; then ok "DNS: $fqdn → $ip"
+        else printf '   FEHLT   DNS: %s zeigt auf %s, erwartet %s\n' "$fqdn" "${ip:-nichts}" "$ZIEL_IP"; fehler=$((fehler + 1)); fi
+        zert="$(echo | openssl s_client -connect "$ZIEL_IP:443" -servername "$fqdn" 2>/dev/null | openssl x509 -noout -issuer -enddate 2>/dev/null || true)"
+        if printf '%s' "$zert" | grep -qi "Let's Encrypt"; then ok "Zertifikat: $(printf '%s' "$zert" | tr '\n' ' ')"
+        else printf '   FEHLT   Zertifikat von Let'"'"'s Encrypt (noch keines? docker logs edge-caddy)\n'; fehler=$((fehler + 1)); fi
+        code="$(curl -s -o /dev/null -w '%{http_code}' --resolve "$fqdn:443:$ZIEL_IP" "https://$fqdn/" || true)"
+        case "$code" in 2*|3*|401|403) ok "HTTPS antwortet: $code" ;;
+            *) printf '   FEHLT   HTTPS antwortet mit %s (läuft der Container im Netz edge?)\n' "${code:-nichts}"; fehler=$((fehler + 1)) ;; esac
+        exit "$fehler"
+        ;;
+    *) abbruch "Unbekannter Befehl: $befehl (add, remove, list, check)" ;;
+esac
+exit 0
+}

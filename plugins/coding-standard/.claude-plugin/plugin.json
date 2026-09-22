@@ -1,7 +1,7 @@
 {
   "name": "coding-standard",
-  "version": "0.8.1",
-  "description": "Arbeits- und Qualitätsstandard für Coding-Sessions bei CoreVision Systems: Kern und Stack-Overlays (Laravel, FastAPI, Script, Astro, WordPress; Next.js als Ausnahme), die ein SessionStart-Hook in erklärten Repos automatisch lädt; /projekt-neu legt ein neues Projekt samt Repository an, /projekt-aufnehmen nimmt ein bestehendes auf; Ablauf-Skills /release, /deploy-check und /pr; ein PreToolUse-Hook gegen zerstörende Git-Befehle; sieben Reviewer-Agents.",
+  "version": "0.9.0",
+  "description": "Arbeits- und Qualitätsstandard für Coding-Sessions bei CoreVision Systems: Kern und Stack-Overlays (Laravel, FastAPI, Script, Astro, WordPress; Next.js als Ausnahme), die ein SessionStart-Hook in erklärten Repos automatisch lädt; /projekt-neu legt ein neues Projekt samt Repository an, /projekt-aufnehmen nimmt ein bestehendes auf; Ablauf-Skills /release, /deploy-check, /rollout und /pr; Server-Baustein (Edge-Caddy mit DNS-01, Rollout auf Auftrag); ein PreToolUse-Hook gegen zerstörende Git-Befehle; sieben Reviewer-Agents.",
   "author": {
     "name": "CoreVision Systems GmbH",
     "email": "info@cvsystems.ai",

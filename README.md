@@ -11,9 +11,10 @@ und Partner als PDF bekommen.
 
 ## Einrichtung in einem Lauf
 
-Ein neues Gerät richtest du nach **[EINRICHTUNG.md](EINRICHTUNG.md)** ein: das Kochbuch mit
-Skript und Handweg, Verzeichnisstruktur, Werkzeugen je Stack samt Quellen, den Handgriffen
-(Anmeldungen, Tresor, WSL2) und der Kontrolle. Die Kurzfassung:
+Arbeitsplatz, Dev-Server und Prod-Server richtest du nach **[EINRICHTUNG.md](EINRICHTUNG.md)**
+ein: das Kochbuch mit Skript und Handweg, Verzeichnisstruktur, Werkzeugen samt Quellen, den
+Handgriffen, dem Server-Aufbau mit Edge-Caddy und DNS-01 und dem Rollout. Kurzfassung für den
+Arbeitsplatz (Teil A):
 
 **Windows**, in einer PowerShell:
 
@@ -28,9 +29,11 @@ curl -fsSL https://raw.githubusercontent.com/CoreVision-Systems-GmbH/coding-plug
 ```
 
 Das installiert die Grundausstattung (Git, GitHub CLI, Claude Code, KeePassXC, Plugin mit
-automatischer Aktualisierung). Die Werkzeuge eines Stacks kommen mit `-Stack laravel` bzw.
-`--stack laravel` dazu, die Kontrolle mit `-Check` bzw. `--check` — Aufrufe mit Schaltern in
-EINRICHTUNG.md, Abschnitt 4. Quelle: [`setup/`](setup/).
+automatischer Aktualisierung) und für die Arbeit auf dem Dev-Server Tailscale, VS Code mit
+Remote-SSH und einen SSH-Schlüssel. Stack-Werkzeuge mit `-Stack <name>` bzw. `--stack <name>`,
+die Kontrolle mit `-Check` bzw. `--check` — Einzelheiten in EINRICHTUNG.md, A.4.
+Server: `plugins/coding-standard/server/setup-server.sh` (EINRICHTUNG.md, Teile B und C).
+Quelle: [`setup/`](setup/).
 
 ## Installieren von Hand (Claude Code)
 
@@ -52,7 +55,7 @@ automatisch — die beiden Befehle oben sind dann nicht nötig.
 
 Neue Fassungen erscheinen als Release in diesem Repository. Mit automatischer
 Aktualisierung (setzt das Einrichtungsskript; in unseren Projekten ohnehin an) holt Claude
-Code sie beim Start einer Session selbst — Einzelheiten in EINRICHTUNG.md, Abschnitt 9.
+Code sie beim Start einer Session selbst — Einzelheiten in EINRICHTUNG.md, A.9.
 Von Hand geht es so:
 
 ```
@@ -65,9 +68,10 @@ claude plugin update coding-standard@corevision
 | Pfad | Was es ist |
 |---|---|
 | `.claude-plugin/marketplace.json` | Der Marketplace `corevision` |
-| `plugins/coding-standard/` | Das Plugin: Kern, Stack-Overlays, Skills (`/projekt-neu`, `/release`, `/deploy-check`, `/pr`), Hooks, Reviewer-Agents, Vorlagen |
+| `plugins/coding-standard/` | Das Plugin: Kern, Stack-Overlays, Skills (`/projekt-neu`, `/projekt-aufnehmen`, `/release`, `/deploy-check`, `/rollout`, `/pr`), Hooks, Reviewer-Agents, Vorlagen |
+| `plugins/coding-standard/server/` | Server-Baustein: `setup-server.sh`, `edge-site`, `rollout`, Edge-Caddy mit DNS-Modulen |
 | `plugins/coding-standard/CHANGES.md` | Was sich je Fassung geändert hat |
-| `EINRICHTUNG.md` | Kochbuch: ein neues Gerät einrichten, per Skript oder von Hand |
+| `EINRICHTUNG.md` | Kochbuch: Arbeitsplatz, Dev-Server, Prod-Server, DNS, Rollout — per Skript oder von Hand |
 | `setup/` | Einrichtungsskripte für Windows (`setup.ps1`) und macOS/Linux/WSL (`setup.sh`) |
 
 ## Rückmeldungen

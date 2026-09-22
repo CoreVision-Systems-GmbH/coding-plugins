@@ -29,6 +29,7 @@ Was nicht verhandelbar ist (Push auf `main`, Force-Push, Secrets im Repo), setze
 - Nie direkt auf `main`. Branch `feat/…`, `fix/…`, `chore/…`, `docs/…` (kebab-case, ASCII); früh ein Draft-PR mit gefüllter Vorlage; Squash-Merge nur bei grüner CI.
 - Conventional Commits: Typ englisch, Text deutsch, ein Anliegen je Commit, der Body erklärt das Warum. Kein Force-Push auf geteilte Branches.
 - Versionen `vX.Y.Z` über `/release`; Images entstehen aus dem Tag, nie `latest` in Produktion. Kundeninstanzen nur über Release + `deploy/update.sh` nach Freigabe; interne Live-Systeme zeitnah nachziehen. Vor jedem Ausrollen den Server-Stand gegen das Repo prüfen.
+- Lieferweg mit Server-Baustein: entwickelt und getestet wird auf dem Dev-Server (`deploy/dev.sh up`, `https://dev.<domain>`, nur im Tailnet); nach Abnahme PR, Merge, Release; auf den Prod-Server kommt ein Release nur per `rollout` — sofort oder zum Termin, nach Freigabe (`/rollout`). Docker auf dem eigenen Rechner nur im Notfall.
 - Migrationen additiv (erst erweitern, später entfernen); Backup vor jeder Migration in Produktion.
 - Destruktive oder produktionswirksame Aktionen nur nach ausdrücklicher Bestätigung — Bedenken einmal nennen, dann ausführen.
 

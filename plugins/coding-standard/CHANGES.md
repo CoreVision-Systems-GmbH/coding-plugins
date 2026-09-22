@@ -7,6 +7,46 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [0.9.0] — 2026-09-23
+
+### Hinzugefügt
+
+- **Server-Baustein `server/`** für Ubuntu 24.04/26.04 LTS: `setup-server.sh --rolle dev|prod
+  --dns hetzner|cloudflare|acmedns --email …` richtet Docker mit Compose (offizielles apt-Repo),
+  Tailscale, Firewall und genau einen Edge-Caddy ein, der HTTP/HTTPS annimmt und an die
+  Anwendungen weiterreicht. Zertifikate von Let's Encrypt über ACME DNS-01 — der Server muss
+  nicht aus dem Internet erreichbar sein. Dev-Server liegen nur im Tailnet, Prod-Server sind
+  öffentlich auf 80/443; SSH nur über Tailscale, ohne sich auszusperren. `--check` belegt den Stand.
+- `edge-site add <host> <container>:<port>` schließt eine Anwendung an: auf dem Dev-Server unter
+  `dev.<host>`, A-Record über die Hetzner- bzw. Cloudflare-API; für Anbieter ohne API einmalig ein
+  CNAME auf acme-dns, danach erneuert Caddy allein. Dazu `list`, `remove` und `check`
+  (DNS, Zertifikat, HTTPS).
+- **Rollout auf Auftrag:** `rollout <app> jetzt [tag]` spielt ein GitHub-Release auf dem
+  Prod-Server ein (Lieferdateien des Tags holen, dann `deploy/update.sh` mit Sicherung und
+  Rückweg); `rollout <app> planen "JJJJ-MM-TT HH:MM" [tag]` legt einen einmaligen Termin
+  (Europe/Vienna) an, der einen Neustart übersteht und sich nach dem Lauf entfernt. Der Tag wird
+  beim Planen festgeschrieben. Dazu `liste`, `absagen`, `status`, `einrichten`, `token`. Ohne
+  Auftrag passiert nichts.
+- **Skill `/rollout`**: zeigt Lage und Änderungen seit der laufenden Fassung, holt die Freigabe
+  und führt den Rollout bzw. Termin per SSH aus. `/deploy-check` verweist darauf.
+- **Dev-Instanz auf dem Dev-Server** für laravel, fastapi, astro und wordpress: `deploy/dev.sh up`
+  baut aus dem Arbeitsstand, startet mit eigener Datenbank (`compose.dev.yaml`, Container
+  `…-dev`) und schließt die Anwendung unter `https://dev.<APP_DOMAIN>` an. Neuer Schlüssel
+  `APP_DOMAIN` in `.env.example`; `deploy/install.sh` schließt die Anwendung auf Servern nach dem
+  Standard selbst an den Edge-Caddy an.
+
+- **Kochbuch `EINRICHTUNG.md` neu gegliedert:** Teil A Arbeitsplatz, B Dev-Server, C Prod-Server,
+  D DNS und Zertifikate (Hetzner, Cloudflare, acme-dns mit einmaligem CNAME), E Rollout.
+
+### Geändert
+
+- **Lieferweg:** entwickelt und getestet wird auf dem Dev-Server, nach Abnahme PR, Merge und
+  Release, auf den Prod-Server kommt ein Release nur per `rollout` (Kern, Overlays, Befehlstabellen).
+  WordPress läuft nicht mehr im lokalen Verbund unter `localhost:8080`, sondern als Dev-Instanz.
+- **Einrichtung des Arbeitsplatzes:** Docker gehört zu keinem Stack mehr — nur noch im Notfall mit
+  `--stack docker`. Neu in der Grundausstattung: Tailscale, VS Code mit Remote-SSH und ein
+  SSH-Schlüssel, um auf dem Dev-Server zu arbeiten. Auf dem Dev-Server selbst entfallen sie.
+
 ## [0.8.1] — 2026-09-22
 
 ### Geändert

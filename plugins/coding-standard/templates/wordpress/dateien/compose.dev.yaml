@@ -1,28 +1,28 @@
-# Überlagerung für die Entwicklung: Site unter http://localhost:8080, Theme, Mu-Plugins
-# und Konfiguration direkt aus dem Arbeitsordner (Änderungen sofort sichtbar), Fehler im
-# Browser (WP_ENV=development, keine Indexierung). Vorher einmalig:
+# Überlagerung für die Dev-Instanz auf dem Dev-Server — aufgerufen von deploy/dev.sh, nicht von Hand:
 #
-#     docker network create edge
+#     deploy/dev.sh up
 #
-# Dann, mit einer .env aus .env.example (lokal genügen Platzhalter-Werte):
+# Gebaut wird aus dem Arbeitsstand (compose.build.yaml). Theme, Mu-Plugins und Konfiguration
+# kommen direkt aus dem Arbeitsordner (Änderungen sofort sichtbar), Fehler erscheinen im Browser
+# (WP_ENV=development, keine Indexierung). Eigene Container-Namen (…-dev) und über den
+# Projektnamen eigene Volumes, also eine eigene Datenbank. Erreichbar unter
+# https://dev.<APP_DOMAIN> über den Edge-Caddy — nur im Tailnet. In der .env der Dev-Instanz
+# steht WP_HOME=https://dev.<APP_DOMAIN>.
 #
-#     APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml -f compose.dev.yaml up --build
+# Erstinstallation der Dev-Site (einmal, nach dem ersten deploy/dev.sh up):
 #
-# Erstinstallation lokal (deploy/install.sh ist für den Server mit Edge-Caddy):
+#     docker compose -p {{NAME}}-dev exec app sh -c 'wp core install --url="$WP_HOME" --title=Dev \
+#         --admin_user=<name> --admin_email=<mail> --prompt=admin_password'
 #
-#     docker compose exec app wp core install --url=http://localhost:8080 --title=Lokal \
-#         --admin_user=<name> --admin_email=<mail> --prompt=admin_password
+# (WP_HOME steht nur in der .env — deshalb wertet die Shell im Container ihn aus.)
 #
-# Auf einem Kundenserver hat diese Datei nichts verloren.
+# Auf dem Prod-Server hat diese Datei nichts verloren: Dort läuft nur ein Release (rollout).
 
 services:
     app:
-        ports:
-            - '8080:8080'
+        container_name: {{NAME}}-dev-app
         environment:
             WP_ENV: development
-            WP_HOME: http://localhost:8080
-            WP_SITEURL: http://localhost:8080/wp
         volumes:
             - ./web/app/themes/site:/app/web/app/themes/site
             - ./web/app/mu-plugins:/app/web/app/mu-plugins
@@ -30,10 +30,12 @@ services:
             - ./docker/php.dev.ini:/usr/local/etc/php/conf.d/zz-dev.ini:ro
 
     cron:
+        container_name: {{NAME}}-dev-cron
         environment:
             WP_ENV: development
-            WP_HOME: http://localhost:8080
-            WP_SITEURL: http://localhost:8080/wp
         volumes:
             - ./web/app/mu-plugins:/app/web/app/mu-plugins
             - ./config:/app/config
+
+    db:
+        container_name: {{NAME}}-dev-db

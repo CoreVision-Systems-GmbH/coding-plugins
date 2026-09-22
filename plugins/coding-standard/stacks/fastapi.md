@@ -26,7 +26,7 @@ Ergänzt den Kern für FastAPI-Dienste (z. B. corevision-mak, corevision-mon). H
 3. **Health:** `GET /healthz` → 200 ohne äußere Abhängigkeiten; optional `/readyz` mit Datenbankprüfung. Der Compose-Healthcheck zeigt darauf.
 4. **Logs:** nach stdout, strukturiert (JSON oder Schlüssel=Wert), ohne PII; Docker rotiert.
 5. **Version im Produkt:** Build-Arg `APP_IMAGE_VERSION` → `settings.version` → sichtbar in der `/healthz`-Antwort und im UI-Footer.
-6. **Lieferung:** wie im Kern — `release.yml` → GHCR (`X.Y.Z`, `X.Y`, `sha-…`), Server ziehen per `deploy/update.sh <tag>` (Backup → Pull → Migration → Start → Health).
+6. **Lieferung:** wie im Kern — `release.yml` → GHCR (`X.Y.Z`, `X.Y`, `sha-…`), Server ziehen per `deploy/update.sh <tag>` (Backup → Pull → Migration → Start → Health), auf dem Prod-Server angestoßen von `rollout`. Dev-Instanz auf dem Dev-Server: `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>`.
 7. **Daten:** SQLite-Dateien und Uploads in einem Volume unter `DATA_DIR`; Backup = `sqlite3 .backup` oder Dateikopie im Ruhezustand; PostgreSQL per `pg_dump -Fc`.
 8. **Qualitätsgates:** neue Router nur mit Tests für erlaubten **und** verweigerten Zugriff; Fehlerpfade (401/403/404/422) getestet; kein Merge mit offenen `ruff`-Befunden.
 

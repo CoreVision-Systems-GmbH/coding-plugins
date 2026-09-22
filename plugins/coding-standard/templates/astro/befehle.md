@@ -8,6 +8,7 @@
 | Sicherheitshinweise          | `npm audit --omit=dev --audit-level=high`                     |
 | Alles prüfen                 | `npm run check && npm run build && npm test`                  |
 | Abbild lokal bauen           | `APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml build` |
+| Dev-Instanz (Dev-Server)             | `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>`   |
 
 Die Tests prüfen das Ergebnis des Baus — `npm test` setzt `npm run build` voraus. Die Site
 hat keine Laufzeit-Konfiguration: `site` in `astro.config.mjs` und alle `PUBLIC_*`-Werte

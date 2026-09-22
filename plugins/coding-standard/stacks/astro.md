@@ -29,7 +29,7 @@ Ergänzt den Kern für öffentliche Content-Sites (Firmenseite, Landingpages, Do
 3. **Health:** `GET /healthz` antwortet direkt aus dem Caddy mit `{"status":"ok","version":"…"}`; der Compose-Healthcheck zeigt darauf (`wget` — `curl` gibt es im Abbild nicht).
 4. **Logs:** Zugriffsprotokoll als JSON nach stderr, `/healthz` ausgenommen. Es gibt keine Cookies und keine Formulardaten, also auch keine PII.
 5. **Version im Produkt:** Build-Arg `APP_IMAGE_VERSION` → `PUBLIC_APP_VERSION` beim Bau → `<meta name="app-version">` und Fußzeile im Layout; als ENV im Laufzeit-Abbild → `/healthz`.
-6. **Lieferung:** wie im Kern — `release.yml` → GHCR (`X.Y.Z`, `X.Y`, `sha-…`), Server ziehen per `deploy/update.sh <tag>`. Keine Migration.
+6. **Lieferung:** wie im Kern — `release.yml` → GHCR (`X.Y.Z`, `X.Y`, `sha-…`), Server ziehen per `deploy/update.sh <tag>`, auf dem Prod-Server angestoßen von `rollout`. Keine Migration. Dev-Instanz auf dem Dev-Server: `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>`.
 7. **Daten:** keine. Deshalb keine Sicherung — `deploy/backup.sh` sagt das und endet mit 0; der Rückweg ist `deploy/update.sh <alter tag>`.
 8. **Qualitätsgates:** `astro check` ohne Befund; jede Seite mit Titel und Beschreibung; `dist/` enthält `index.html`, `404.html` und `sitemap-index.xml`; kein Client-JavaScript ohne begründete Insel.
 

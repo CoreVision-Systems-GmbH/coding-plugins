@@ -1,0 +1,33 @@
+# Der eine Edge-Caddy des Servers. Er nimmt alle HTTP- und HTTPS-Anfragen an und reicht
+# sie anhand des Hostnamens an die Anwendungen im Netz `edge` weiter. Anwendungen
+# veröffentlichen selbst keinen Port. Grundsatz: pro Server genau ein Edge.
+#
+# Verwaltet von setup-server.sh (liegt als /opt/edge/compose.yaml) — nicht von Hand ändern.
+
+name: edge
+
+services:
+    caddy:
+        build: .
+        image: edge-caddy:standard
+        container_name: edge-caddy
+        restart: unless-stopped
+        env_file: .env
+        ports:
+            # Dev: nur die Tailscale-Adresse — Docker umgeht ufw, deshalb schützt allein die
+            # Bindung. Prod: alle Adressen. Innen und außen dieselben Ports, sonst zeigen
+            # Caddys Weiterleitungen ins Leere.
+            - '${BIND_IP:?BIND_IP fehlt in .env — Dev: Tailscale-IP, Prod: 0.0.0.0}:80:80'
+            - '${BIND_IP:?BIND_IP fehlt in .env — Dev: Tailscale-IP, Prod: 0.0.0.0}:443:443'
+        volumes:
+            # Ganzes Verzeichnis statt Einzeldatei: Ein Einzeldatei-Mount hängt am Inode und
+            # sähe eine neu geschriebene Caddyfile nicht.
+            - ./caddy:/etc/caddy:ro
+            - /var/lib/edge/data:/data
+            - /var/lib/edge/config:/config
+        networks:
+            - edge
+
+networks:
+    edge:
+        external: true

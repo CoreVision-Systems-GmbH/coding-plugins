@@ -1,0 +1,13 @@
+# Überlagerung für die Dev-Instanz auf dem Dev-Server — aufgerufen von deploy/dev.sh, nicht von Hand:
+#
+#     deploy/dev.sh up
+#
+# Gebaut wird aus dem Arbeitsstand (compose.build.yaml), der Dienst bekommt einen eigenen
+# Container-Namen (…-dev) und über den Projektnamen eigene Volumes. Erreichbar unter
+# https://dev.<APP_DOMAIN> über den Edge-Caddy — nur im Tailnet.
+#
+# Auf dem Prod-Server hat diese Datei nichts verloren: Dort läuft nur ein Release (rollout).
+
+services:
+    app:
+        container_name: {{NAME}}-dev-app

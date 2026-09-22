@@ -36,6 +36,10 @@ Im `deployments`-Repo den Instanzordner `customers/<kunde>/<produkt>/` lesen:
 Aus `INSTANZ.md` ergeben sich Host und Instanzverzeichnis für alle weiteren Prüfungen.
 Fehlt der Ordner oder eine der Dateien: abbrechen und sagen, was fehlt.
 
+Auf Prod-Servern nach dem Server-Baustein (`setup-server.sh --rolle prod`) liegt die Instanz
+unter `/opt/apps/<app>/`; `ssh <host> sudo rollout <app> status` zeigt laufende Fassung,
+Container, geplante Termine und die letzten Läufe — lesend, als Ausgangspunkt für (a) und (f).
+
 ## (a) Ziel-Tag
 
 - Existiert `<tag>` als GitHub-Release im Produkt-Repo?
@@ -110,4 +114,5 @@ Ungeprüft:  <was nicht festgestellt werden konnte>
 ```
 
 Bei durchgehendem Go: die Empfehlung aussprechen und darauf hinweisen, dass das Update
-selbst ein eigener, bestätigter Schritt ist — dieser Skill fährt es nicht.
+selbst ein eigener, bestätigter Schritt ist — dieser Skill fährt es nicht. Auf Prod-Servern mit
+Server-Baustein ist das `/rollout <app> jetzt|"<termin>" <tag>`.

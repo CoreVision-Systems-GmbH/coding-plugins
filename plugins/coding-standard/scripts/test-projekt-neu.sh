@@ -181,7 +181,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              app/modules/beispiel/router.py app/modules/beispiel/service.py \
              app/modules/beispiel/schemas.py \
              tests/conftest.py tests/test_health.py \
-             deploy/install.sh deploy/update.sh deploy/backup.sh \
+             deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
              scripts/release-notes.sh \
              .github/workflows/tests.yml .github/workflows/release.yml; do
     [ -f "$pdir/$datei" ] && ok "vorhanden: $datei" || nichtok "fehlt: $datei"
@@ -207,6 +207,12 @@ git -C "$pdir" ls-files | grep -q '^\.venv/' \
 [ "$(git -C "$pdir" ls-files -s deploy/update.sh | cut -c1-6)" = "100755" ] \
     && ok "Ausführbar-Bit im Index: deploy/update.sh" \
     || nichtok "Ausführbar-Bit im Index: deploy/update.sh"
+[ "$(git -C "$pdir" ls-files -s deploy/dev.sh | cut -c1-6)" = "100755" ] \
+    && ok "Ausführbar-Bit im Index: deploy/dev.sh" \
+    || nichtok "Ausführbar-Bit im Index: deploy/dev.sh"
+grep -q '^APP_DOMAIN=' "$pdir/.env.example" \
+    && ok "APP_DOMAIN in .env.example (Anschluss an den Edge)" \
+    || nichtok "APP_DOMAIN in .env.example (Anschluss an den Edge)"
 
 hook_stacks "$pdir" | grep -q 'Stack erkannt: fastapi' \
     && ok "Hook erkennt den Stack fastapi" || nichtok "Hook erkennt den Stack fastapi"
@@ -226,7 +232,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              src/layouts/Base.astro src/pages/index.astro src/pages/404.astro \
              src/styles/global.css public/robots.txt public/favicon.svg \
              tests/build.test.mjs .claude/rules/inhalt.md docker/Caddyfile \
-             deploy/install.sh deploy/update.sh deploy/backup.sh \
+             deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
              scripts/release-notes.sh \
              .github/workflows/tests.yml .github/workflows/release.yml \
              .github/dependabot.yml \
@@ -262,6 +268,12 @@ git -C "$pdir" ls-files --error-unmatch package-lock.json >/dev/null 2>&1 \
 [ "$(git -C "$pdir" ls-files -s deploy/update.sh | cut -c1-6)" = "100755" ] \
     && ok "Ausführbar-Bit im Index: deploy/update.sh" \
     || nichtok "Ausführbar-Bit im Index: deploy/update.sh"
+[ "$(git -C "$pdir" ls-files -s deploy/dev.sh | cut -c1-6)" = "100755" ] \
+    && ok "Ausführbar-Bit im Index: deploy/dev.sh" \
+    || nichtok "Ausführbar-Bit im Index: deploy/dev.sh"
+grep -q '^APP_DOMAIN=' "$pdir/.env.example" \
+    && ok "APP_DOMAIN in .env.example (Anschluss an den Edge)" \
+    || nichtok "APP_DOMAIN in .env.example (Anschluss an den Edge)"
 
 hook_stacks "$pdir" | grep -q 'Stack erkannt: astro' \
     && ok "Hook erkennt den Stack astro" || nichtok "Hook erkennt den Stack astro"
@@ -296,7 +308,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              tests/pruefe-struktur.php .claude/rules/site.md .claude/rules/tests.md \
              docker/Caddyfile docker/php.ini docker/php.dev.ini docker/entrypoint.sh \
              docker/sprachpakete.php \
-             deploy/install.sh deploy/update.sh deploy/backup.sh \
+             deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
              scripts/release-notes.sh \
              .github/workflows/tests.yml .github/workflows/release.yml \
              .github/dependabot.yml; do
@@ -338,6 +350,12 @@ git -C "$pdir" ls-files --error-unmatch .projekt-neu-nacharbeit >/dev/null 2>&1 
 [ "$(git -C "$pdir" ls-files -s deploy/update.sh | cut -c1-6)" = "100755" ] \
     && ok "Ausführbar-Bit im Index: deploy/update.sh" \
     || nichtok "Ausführbar-Bit im Index: deploy/update.sh"
+[ "$(git -C "$pdir" ls-files -s deploy/dev.sh | cut -c1-6)" = "100755" ] \
+    && ok "Ausführbar-Bit im Index: deploy/dev.sh" \
+    || nichtok "Ausführbar-Bit im Index: deploy/dev.sh"
+grep -q '^APP_DOMAIN=' "$pdir/.env.example" \
+    && ok "APP_DOMAIN in .env.example (Anschluss an den Edge)" \
+    || nichtok "APP_DOMAIN in .env.example (Anschluss an den Edge)"
 [ "$(git -C "$pdir" ls-files -s docker/entrypoint.sh | cut -c1-6)" = "100755" ] \
     && ok "Ausführbar-Bit im Index: docker/entrypoint.sh" \
     || nichtok "Ausführbar-Bit im Index: docker/entrypoint.sh"

@@ -10,6 +10,7 @@
 | Sicherheitshinweise          | `pip-audit -r requirements.txt`                    |
 | Alles prüfen                 | `ruff format --check . && ruff check . && mypy app && pytest` |
 | Lokal starten                | `uvicorn app.main:app --reload --port 8080`        |
+| Dev-Instanz (Dev-Server)             | `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>`   |
 
 Der Dienst antwortet unter `/healthz` mit der ausgelieferten Fassung; die Schnittstelle
 beschreibt sich selbst unter `/docs`.

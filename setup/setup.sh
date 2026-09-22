@@ -10,7 +10,8 @@
 # Schalter:
 #
 #   --stack <name>   zusätzlich die Werkzeuge eines Stacks: laravel, fastapi, script, astro,
-#                    wordpress oder alle; mehrfach oder mit Komma (--stack laravel,astro)
+#                    wordpress oder alle; mehrfach oder mit Komma (--stack laravel,astro).
+#                    docker nur im Notfall — Container laufen auf dem Dev-Server
 #   --check          installiert nichts, prüft nur; Exit 0 heißt: das Gerät ist fertig
 #   --liste          zeigt die Bausteine der gewählten Stacks samt Quelle, prüft nichts
 #   --dry-run        zeigt, was zu tun wäre, ändert nichts
@@ -19,8 +20,10 @@
 # Was es tut — jeder Schritt wird übersprungen, wenn er schon erledigt ist:
 #   Grundausstattung: git, GitHub CLI, Claude Code, KeePassXC, die Ordner ~/Code und ~/Tresor,
 #   Marketplace „corevision“ und Plugin coding-standard mit automatischer Aktualisierung.
-#   Je Stack: PHP 8.4 mit intl, Composer, Laravel-Installer, Node 24, Docker, Python 3.12,
-#   pipx mit ruff und pytest, shellcheck, PowerShell mit PSScriptAnalyzer.
+#   Auf dem Arbeitsplatz dazu: Tailscale, VS Code mit Remote-SSH und ein SSH-Schlüssel — damit
+#   arbeitest du auf dem Dev-Server. Auf dem Dev-Server selbst (setup-server.sh) entfallen sie.
+#   Je Stack: PHP 8.4 mit intl, Composer, Laravel-Installer, Node 24, Python 3.12, pipx mit ruff
+#   und pytest, shellcheck, PowerShell mit PSScriptAnalyzer; Docker nur mit --stack docker.
 #   Quellen: Homebrew auf macOS; apt auf Debian/Ubuntu mit den offiziellen Repos von
 #   GitHub CLI, NodeSource, Docker und Microsoft. Andere Linux-Systeme: von Hand.
 #
@@ -73,19 +76,21 @@ done
 
 stacks=""
 for s in $gewaehlt; do
-    if [ "$s" = alle ]; then stacks="$STACKS"; continue; fi
+    if [ "$s" = alle ]; then stacks="$stacks $STACKS"; continue; fi
+    if [ "$s" = docker ]; then stacks="$stacks docker"; continue; fi
     case " $STACKS " in
         *" $s "*) stacks="$stacks $s" ;;
-        *) printf 'Unbekannter Stack: %s — erlaubt: %s, alle\n' "$s" "${STACKS// /, }" >&2; exit 1 ;;
+        *) printf 'Unbekannter Stack: %s — erlaubt: %s, alle, docker\n' "$s" "${STACKS// /, }" >&2; exit 1 ;;
     esac
 done
 
 stack_bausteine() {
     case "$1" in
-        laravel)   echo "php composer laravel node docker" ;;
-        wordpress) echo "php composer docker" ;;
-        astro)     echo "node docker" ;;
-        fastapi)   echo "python docker" ;;
+        laravel)   echo "php composer laravel node" ;;
+        wordpress) echo "php composer" ;;
+        astro)     echo "node" ;;
+        fastapi)   echo "python" ;;
+        docker)    echo "docker" ;;
         script)    echo "shellcheck python pipx powershell" ;;
     esac
 }
@@ -143,6 +148,10 @@ fi
 if [ "$system" = windows ]; then fehler "Windows erkannt — bitte setup.ps1 in der PowerShell verwenden."; exit 1; fi
 wsl=0
 if [ "$system" = linux ] && grep -qi microsoft /proc/version 2>/dev/null; then wsl=1; fi
+# Auf dem Dev-Server (setup-server.sh) kommen Tailscale und Docker von dort; VS Code und der
+# SSH-Schlüssel gehören auf den Arbeitsplatz, von dem aus man sich verbindet.
+arbeitsplatz=1
+if [ -f "${SERVER_KONF:-/etc/corevision/server.env}" ]; then arbeitsplatz=0; fi
 
 quelle() {
     case "$system:$1" in
@@ -169,7 +178,7 @@ quelle() {
 }
 
 if [ $nur_liste -eq 1 ]; then
-    printf 'Grundausstattung: git gh claude keepassxc ordner plugin\n'
+    printf 'Grundausstattung: git gh claude keepassxc ordner plugin%s\n' "$([ $arbeitsplatz -eq 1 ] && echo ' tailscale vscode remotessh sshkey')"
     for b in $bausteine; do printf '%-11s %s\n' "$b" "$(quelle "$b")"; done
     exit 0
 fi
@@ -265,9 +274,21 @@ python_ok() {
     [ -n "$v" ] && fassung_ge "$v" 3.12
 }
 
+schluessel_erzeugen() {
+    # Ein Schlüssel je Gerät; die Passphrase fragt ssh-keygen selbst ab (Terminal nötig).
+    if ! terminal_da; then handgriff "SSH-Schlüssel erzeugen: ssh-keygen -t ed25519"; return 0; fi
+    mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
+    ssh-keygen -t ed25519 -C "$(git config --global user.email 2>/dev/null || echo "$USER@$(hostname)")" -f "$HOME/.ssh/id_ed25519" </dev/tty
+    handgriff "Öffentlichen Schlüssel (~/.ssh/id_ed25519.pub) beim Dev-Server hinterlegen lassen bzw. ssh-copy-id <name>@<dev-server>"
+}
+
 ist_da() {
     case "$1" in
         keepassxc)  vorhanden keepassxc-cli || vorhanden keepassxc || [ -d /Applications/KeePassXC.app ] ;;
+        tailscale)  vorhanden tailscale || [ -d /Applications/Tailscale.app ] ;;
+        vscode)     vorhanden code ;;
+        remotessh)  vorhanden code && code --list-extensions 2>/dev/null | grep -qix ms-vscode-remote.remote-ssh ;;
+        sshkey)     [ -f "$HOME/.ssh/id_ed25519" ] || [ -f "$HOME/.ssh/id_rsa" ] ;;
         python)     python_ok ;;
         pipx)       vorhanden pipx && vorhanden ruff && vorhanden pytest ;;
         powershell) psa_da ;;
@@ -283,6 +304,10 @@ installiere() {
         mac:git)          brew install git ;;
         mac:gh)           brew install gh ;;
         mac:keepassxc)    brew install --cask keepassxc ;;
+        mac:tailscale)    brew install --cask tailscale-app && handgriff "Tailscale öffnen und anmelden (Menüleiste)" ;;
+        mac:vscode)       brew install --cask visual-studio-code ;;
+        *:remotessh)      code --install-extension ms-vscode-remote.remote-ssh ;;
+        *:sshkey)         schluessel_erzeugen ;;
         mac:php)          brew install php@8.4 && brew link --force --overwrite php@8.4 ;;
         mac:composer)     brew install composer ;;
         *:laravel)        composer global require laravel/installer && profil_pfad "$(composer global config bin-dir --absolute 2>/dev/null)" ;;
@@ -295,6 +320,9 @@ installiere() {
         linux:git)        apt_rein git ;;
         linux:gh)         gh_repo_einrichten && apt_rein gh ;;
         linux:keepassxc)  apt_rein keepassxc ;;
+        linux:tailscale)  curl -fsSL https://tailscale.com/install.sh | sh && handgriff "Tailscale anmelden: sudo tailscale up" ;;
+        linux:vscode)     if vorhanden snap; then sudo snap install code --classic
+                          else fehler "VS Code: https://code.visualstudio.com/docs/setup/linux (Paketquelle von Microsoft)"; return 1; fi ;;
         linux:php)        php_quelle_pruefen && apt_rein php8.4-cli php8.4-intl php8.4-mbstring php8.4-xml php8.4-zip \
                               php8.4-curl php8.4-sqlite3 php8.4-pgsql php8.4-mysql php8.4-gd php8.4-bcmath unzip ;;
         linux:composer)   composer_installieren ;;
@@ -416,7 +444,14 @@ pruefen() {
     for b in git gh claude; do
         if vorhanden "$b"; then ok "$b — $(fassung "$b")"; else fehlt "$b"; fi
     done
-    if ist_da keepassxc; then ok "KeePassXC"; else fehlt "KeePassXC"; fi
+    # KeePassXC gehört auf den Arbeitsplatz: Auf dem Dev-Server liegt kein Tresor.
+    if [ $arbeitsplatz -eq 1 ]; then if ist_da keepassxc; then ok "KeePassXC"; else fehlt "KeePassXC"; fi; fi
+    if [ $arbeitsplatz -eq 1 ] && [ $wsl -eq 0 ]; then
+        if ist_da tailscale; then ok "Tailscale"; else fehlt "Tailscale"; fi
+        if ist_da vscode; then ok "VS Code"; else fehlt "VS Code"; fi
+        if ist_da remotessh; then ok "VS Code: Remote-SSH"; else fehlt "VS Code: Remote-SSH"; fi
+        if ist_da sshkey; then ok "SSH-Schlüssel"; else fehlt "SSH-Schlüssel (ssh-keygen -t ed25519)"; fi
+    fi
     for d in "$CODE_DIR" "$TRESOR_DIR"; do
         if [ -d "$d" ]; then ok "Ordner $d"; else fehlt "Ordner $d"; fi
     done
@@ -484,7 +519,16 @@ if [ $nur_pruefen -eq 0 ]; then
         export PATH="$HOME/.local/bin:$PATH"
         vorhanden claude || befund "claude nach der Installation nicht im Pfad — neue Shell öffnen und Skript erneut starten"
     fi
-    baustein keepassxc "KeePassXC"
+    [ $arbeitsplatz -eq 0 ] || baustein keepassxc "KeePassXC"
+    if [ $arbeitsplatz -eq 1 ]; then
+        # Unter WSL verbinden VS Code, Tailscale und der SSH-Schlüssel von Windows aus (setup.ps1).
+        if [ $wsl -eq 1 ]; then ok "Tailscale, VS Code, SSH-Schlüssel: unter WSL die Windows-Seite verwenden (setup.ps1)"
+        else
+            baustein tailscale "Tailscale"
+            baustein vscode "VS Code"; baustein remotessh "VS Code: Remote-SSH"
+            baustein sshkey "SSH-Schlüssel"
+        fi
+    fi
 
     schritt "Ordner"
     for d in "$CODE_DIR" "$TRESOR_DIR"; do

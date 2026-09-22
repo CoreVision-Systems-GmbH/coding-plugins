@@ -12,8 +12,8 @@
     {
       "name": "coding-standard",
       "source": "./plugins/coding-standard",
-      "description": "Arbeits- und Qualitätsstandard für Coding-Sessions: Kern + Stack-Overlays (Laravel, FastAPI, Script, Astro, WordPress; automatisch geladen), /projekt-neu für neue Projekte, /projekt-aufnehmen für Bestand, Skills /release, /deploy-check, /pr, Git-Schutzhook und Reviewer-Agents.",
-      "version": "0.8.1"
+      "description": "Arbeits- und Qualitätsstandard für Coding-Sessions: Kern + Stack-Overlays (Laravel, FastAPI, Script, Astro, WordPress; automatisch geladen), /projekt-neu für neue Projekte, /projekt-aufnehmen für Bestand, Skills /release, /deploy-check, /rollout, /pr, Server-Baustein, Git-Schutzhook und Reviewer-Agents.",
+      "version": "0.9.0"
     }
   ]
 }

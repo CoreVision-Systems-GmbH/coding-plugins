@@ -6,7 +6,7 @@ paths: ['tests/**']
 
 - **Ohne Datenbank.** `composer check` = Coding-Standards (PHPCS), statische Analyse
   (PHPStan) und die Strukturprüfung. Was eine laufende Site braucht — Anmeldung, Editor,
-  Uploads, ein Plugin —, wird im lokalen Verbund geprüft (`compose.dev.yaml`) und im PR als
+  Uploads, ein Plugin —, wird auf der Dev-Instanz geprüft (`deploy/dev.sh up`) und im PR als
   Klickweg festgehalten: „geprüft: …“.
 - **Jeder Fix bringt eine Prüfung mit,** die ohne die Korrektur rot wäre: eine Regel in
   `phpcs.xml`, eine Zusicherung in `tests/pruefe-struktur.php` oder ein PHPStan-Befund.

@@ -12,7 +12,8 @@
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/CoreVision-Systems-GmbH/coding-plugins/main/setup/setup.ps1))) -Stack laravel -GitHubLogin
 #
 #   -Stack <name>  zusätzlich die Werkzeuge eines Stacks: laravel, fastapi, script, astro,
-#                  wordpress oder alle; mehrere mit Komma (-Stack laravel,astro)
+#                  wordpress oder alle; mehrere mit Komma (-Stack laravel,astro).
+#                  docker nur im Notfall — Container laufen auf dem Dev-Server
 #   -Check         installiert nichts, prüft nur; Exit 0 heißt: das Gerät ist fertig
 #   -Liste         zeigt die Bausteine der gewählten Stacks samt Quelle, prüft nichts
 #   -DryRun        zeigt, was zu tun wäre, ändert nichts
@@ -21,9 +22,11 @@
 # Was es tut — jeder Schritt wird übersprungen, wenn er schon erledigt ist:
 #   Grundausstattung: Git for Windows (mit Git Bash, die Claude Code braucht), GitHub CLI,
 #   Claude Code, KeePassXC, die Ordner ~\Code und ~\Tresor, Marketplace „corevision“ und
-#   Plugin coding-standard mit automatischer Aktualisierung.
-#   Je Stack: Herd (PHP 8.4 mit intl, Composer, Laravel-Installer), Node LTS, Docker Desktop,
-#   Python 3.12, pipx mit ruff und pytest, shellcheck, PSScriptAnalyzer. Quelle ist winget.
+#   Plugin coding-standard mit automatischer Aktualisierung; dazu Tailscale, VS Code mit
+#   Remote-SSH und ein SSH-Schlüssel — damit arbeitest du auf dem Dev-Server.
+#   Je Stack: Herd (PHP 8.4 mit intl, Composer, Laravel-Installer), Node LTS, Python 3.12,
+#   pipx mit ruff und pytest, shellcheck, PSScriptAnalyzer; Docker Desktop nur mit -Stack docker.
+#   Quelle ist winget.
 #
 # Was es NICHT tut: Anmeldungen (claude, Docker; gh nur mit -GitHubLogin), WSL2 einrichten
 # (braucht Administrator und Neustart), Herd zum ersten Mal starten, Git-Identität setzen,
@@ -53,10 +56,11 @@ $Stacks = @('laravel', 'fastapi', 'script', 'astro', 'wordpress')
 # Reihenfolge zählt: PHP vor Composer vor dem Laravel-Installer, Python vor pipx.
 $Reihenfolge = @('php', 'composer', 'laravel', 'node', 'docker', 'python', 'pipx', 'shellcheck', 'powershell')
 $StackBausteine = @{
-    laravel   = @('php', 'composer', 'laravel', 'node', 'docker')
-    wordpress = @('php', 'composer', 'docker')
-    astro     = @('node', 'docker')
-    fastapi   = @('python', 'docker')
+    laravel   = @('php', 'composer', 'laravel', 'node')
+    wordpress = @('php', 'composer')
+    astro     = @('node')
+    fastapi   = @('python')
+    docker    = @('docker')
     script    = @('shellcheck', 'python', 'pipx', 'powershell')
 }
 $Quelle = @{
@@ -84,14 +88,15 @@ foreach ($eintrag in $Stack) {
         $s = $s.Trim().ToLower()
         if (-not $s) { continue }
         if ($s -eq 'alle') { $gewaehlt += $Stacks }
+        elseif ($s -eq 'docker') { $gewaehlt += 'docker' }
         elseif ($Stacks -contains $s) { $gewaehlt += $s }
-        else { Write-Host "Unbekannter Stack: $s — erlaubt: $($Stacks -join ', '), alle"; Setze-Exitcode 1; return }
+        else { Write-Host "Unbekannter Stack: $s — erlaubt: $($Stacks -join ', '), alle, docker"; Setze-Exitcode 1; return }
     }
 }
 $Bausteine = @($Reihenfolge | Where-Object { $b = $_; @($gewaehlt | Where-Object { $StackBausteine[$_] -contains $b }).Count -gt 0 })
 
 if ($Liste) {
-    Write-Host 'Grundausstattung: git gh claude keepassxc ordner plugin'
+    Write-Host 'Grundausstattung: git gh claude keepassxc ordner plugin tailscale vscode remotessh sshkey'
     foreach ($b in $Bausteine) { Write-Host ('{0,-11} {1}' -f $b, $Quelle[$b]) }
     Setze-Exitcode 0
     return
@@ -172,6 +177,9 @@ function WSL-Bereit {
     return ((Aufruf 'wsl.exe' @('--status')).Code -eq 0)
 }
 function KeePassXC-Da { return ((Test-Path (Join-Path $env:ProgramFiles 'KeePassXC\KeePassXC.exe')) -or (Vorhanden 'keepassxc-cli')) }
+function Tailscale-Da { return ((Vorhanden 'tailscale') -or (Test-Path (Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'))) }
+function RemoteSSH-Da { return ((Vorhanden 'code') -and ((Aufruf 'code' @('--list-extensions')).Text -match '(?im)^ms-vscode-remote\.remote-ssh\s*$')) }
+function Schluessel-Da { return ((Test-Path (Join-Path $HOME '.ssh\id_ed25519')) -or (Test-Path (Join-Path $HOME '.ssh\id_rsa'))) }
 
 function Ist-Da([string]$B) {
     switch ($B) {
@@ -326,6 +334,10 @@ function Pruefen {
         if (Vorhanden $b) { Ok "$b — $(Fassung $b @('--version'))" } else { Fehlt $b }
     }
     if (KeePassXC-Da) { Ok 'KeePassXC' } else { Fehlt 'KeePassXC' }
+    if (Tailscale-Da) { Ok 'Tailscale' } else { Fehlt 'Tailscale' }
+    if (Vorhanden 'code') { Ok 'VS Code' } else { Fehlt 'VS Code' }
+    if (RemoteSSH-Da) { Ok 'VS Code: Remote-SSH' } else { Fehlt 'VS Code: Remote-SSH' }
+    if (Schluessel-Da) { Ok 'SSH-Schlüssel' } else { Fehlt 'SSH-Schlüssel (ssh-keygen -t ed25519)' }
     foreach ($d in @($CodeDir, $TresorDir)) { if (Test-Path $d) { Ok "Ordner $d" } else { Fehlt "Ordner $d" } }
     if (Vorhanden 'claude') {
         if ((Aufruf 'claude' @('plugin', 'list')).Text -match [regex]::Escape($Plugin)) { Ok "Plugin $Plugin geladen" } else { Fehlt "Plugin $Plugin" }
@@ -369,6 +381,29 @@ if (-not $Check) {
     if (KeePassXC-Da) { Ok 'KeePassXC vorhanden' }
     elseif ($DryRun) { Tun 'würde installieren: KeePassXC (winget KeePassXCTeam.KeePassXC)' }
     else { Winget-Installieren 'KeePassXCTeam.KeePassXC' 'KeePassXC' }
+
+    # Arbeitsplatz: Der Code liegt auf dem Dev-Server; VS Code verbindet sich per Remote-SSH über Tailscale.
+    if (Tailscale-Da) { Ok 'Tailscale vorhanden' }
+    elseif ($DryRun) { Tun 'würde installieren: Tailscale (winget Tailscale.Tailscale)' }
+    else { Winget-Installieren 'Tailscale.Tailscale' 'Tailscale'; Handgriff 'Tailscale anmelden: Tailscale im Infobereich öffnen, „Log in“' }
+    if (Vorhanden 'code') { Ok 'VS Code vorhanden' }
+    elseif ($DryRun) { Tun 'würde installieren: VS Code (winget Microsoft.VisualStudioCode)' }
+    else { Winget-Installieren 'Microsoft.VisualStudioCode' 'VS Code' }
+    if (RemoteSSH-Da) { Ok 'VS Code: Remote-SSH vorhanden' }
+    elseif ($DryRun) { Tun 'würde installieren: Erweiterung ms-vscode-remote.remote-ssh' }
+    elseif (Vorhanden 'code') { Tun 'installiere Erweiterung Remote-SSH'; Aufruf 'code' @('--install-extension', 'ms-vscode-remote.remote-ssh') | Out-Null }
+    if (Schluessel-Da) { Ok 'SSH-Schlüssel vorhanden' }
+    elseif ($DryRun) { Tun 'würde erzeugen: SSH-Schlüssel (ssh-keygen -t ed25519)' }
+    elseif ((Vorhanden 'ssh-keygen') -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        # Die Passphrase fragt ssh-keygen selbst ab — ohne Konsole würde es hängen.
+        Tun 'erzeuge SSH-Schlüssel (Passphrase wird abgefragt)'
+        New-Item -ItemType Directory -Force (Join-Path $HOME '.ssh') | Out-Null
+        & ssh-keygen -t ed25519 -f (Join-Path $HOME '.ssh\id_ed25519')
+        if ($LASTEXITCODE -eq 0) { Handgriff 'Öffentlichen Schlüssel (~\.ssh\id_ed25519.pub) beim Dev-Server hinterlegen lassen' }
+        else { Befund 'ssh-keygen ist gescheitert — von Hand: ssh-keygen -t ed25519' }
+    }
+    elseif (Vorhanden 'ssh-keygen') { Handgriff 'SSH-Schlüssel erzeugen: ssh-keygen -t ed25519' }
+    else { Handgriff 'SSH-Schlüssel: Einstellungen → Apps → Optionale Features → OpenSSH-Client, dann ssh-keygen -t ed25519' }
 
     Schritt 'Ordner'
     foreach ($d in @($CodeDir, $TresorDir)) {

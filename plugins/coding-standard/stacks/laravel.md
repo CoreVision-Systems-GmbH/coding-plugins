@@ -38,7 +38,7 @@ Ergänzt den Kern für Laravel-Repos. Framework-Idiome liefert Laravel Boost (Gu
 6. **Caches zur Laufzeit:** `php artisan optimize` im Entrypoint nach dem Laden der ENV, nicht im Image. Nach einem Update `php artisan reload`.
 7. **Qualitätsgates:** Larastan Level 7 (Bestand) bzw. 8 (neu); `pest --type-coverage --min=95`; Policy-Tests paarweise Pflicht; Browser-Tests (Pest 5 Browser-Plugin + Playwright) nur für kritische Wege, als Nightly.
 8. **Version im Produkt:** Build-Arg `APP_IMAGE_VERSION` → `config('app.version')` → Footer beider Oberflächen. Die Instanz pinnt den Image-Tag über `APP_VERSION` in ihrer `.env`.
-9. **Lieferung:** `release.yml` baut aus `vX.Y.Z` nach GHCR (`X.Y.Z`, `X.Y`, `sha-…`, kein `latest`). Server ziehen per `deploy/update.sh <tag>` (Backup → Pull → `migrate --force` → `up -d --wait` → `reload` → `/up`); der Server-Checkout steht auf dem Release-Tag; fremde Images sind gepinnt.
+9. **Lieferung:** `release.yml` baut aus `vX.Y.Z` nach GHCR (`X.Y.Z`, `X.Y`, `sha-…`, kein `latest`). Server ziehen per `deploy/update.sh <tag>` (Backup → Pull → `migrate --force` → `up -d --wait` → `reload` → `/up`), auf dem Prod-Server angestoßen von `rollout` (sofort oder zum Termin), der die Lieferdateien des Tags nach `/opt/apps/<app>/` holt; fremde Images sind gepinnt. Entwickelt wird auf dem Dev-Server: `deploy/dev.sh up` baut aus dem Arbeitsstand mit eigener Datenbank unter `https://dev.<APP_DOMAIN>`.
 10. **Migrationen:** expand/contract — neue Spalten `nullable` oder mit Default, `DROP` und Umbenennung erst im Folgerelease, keine Datenmassen in Migrationen (Job oder Command).
 11. **Boost:** Sein Block in `CLAUDE.md` bleibt committed und wird nur von `boost:update` gepflegt; `.ai/rules/` committen.
 

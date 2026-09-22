@@ -139,6 +139,7 @@ von selbst heran. Sie werden ausschließlich vom Menschen aufgerufen.
 | `wordpress` | `/wordpress [Aufgabe]` | Stack-Overlay WordPress von Hand laden, Fassungen, Plugins ohne ADR und Abweichungen feststellen. |
 | `release` | `/release [major\|minor\|patch\|X.Y.Z]` | Version aus den Commits vorschlagen, `CHANGES.md` abschließen, Release-PR durch die CI, Tag und GitHub-Release anlegen, Image-Referenz berichten. |
 | `deploy-check` | `/deploy-check <kunde>/<produkt> <tag>` | Prüfliste vor dem Update einer Kundeninstanz: Ziel-Tag, Migrationen, ENV-Schlüssel, Drift, Sicherung, Gesundheit. Führt **kein** Update aus. |
+| `rollout` | `/rollout <app> <aktion> [tag]` (Aktion: jetzt, Termin, liste, absagen, status) | Spielt ein Release auf dem Prod-Server ein — sofort oder zum Termin, nur nach Freigabe; Termine anzeigen und absagen. |
 | `pr` | `/pr [Hinweis]` | Draft-PR aus dem aktuellen Branch: Titel als Conventional Commit, Body nach der PR-Vorlage, CI-Status abrufen. Merged nicht. |
 
 Rangfolge bei Widerspruch:
@@ -218,6 +219,24 @@ Gemeinsames Ausgabeformat: eine Tabelle
 Korrektheit, Sicherheit und Scope-Treue; keine Stilfragen ohne Auftrag; jeder Befund
 braucht einen Beleg.
 
+## Server und Lieferweg
+
+Entwickelt und getestet wird auf einem **Dev-Server**, ausgeliefert auf einen **Prod-Server** —
+beide Ubuntu LTS nach `server/setup-server.sh`, mit Docker Compose und genau einem Edge-Caddy,
+der HTTP/HTTPS annimmt und nach Hostname weiterreicht. Zertifikate über ACME DNS-01 (Hetzner,
+Cloudflare oder acme-dns), deshalb darf der Dev-Server nur im Tailnet liegen.
+
+| Schritt | Wo | Befehl |
+|---|---|---|
+| Server einrichten | Dev bzw. Prod | `sudo …/server/setup-server.sh --rolle dev\|prod --dns hetzner\|cloudflare\|acmedns --email …` |
+| Anwendung testen | Dev-Server, im Projekt | `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>` |
+| Ausliefern | GitHub | PR → Merge → `/release` |
+| Erstinstallation | Prod-Server | `sudo rollout <app> einrichten <repo>`, `.env`, `sudo deploy/install.sh` |
+| Neue Fassung | Prod-Server | `sudo rollout <app> jetzt` oder `planen "JJJJ-MM-TT HH:MM"` — bzw. `/rollout` |
+
+Anleitung Schritt für Schritt: `EINRICHTUNG.md` im Verteil-Repo, Teile B bis E; Entscheidung und
+Gründe: ADR 0003 im Entwicklungs-Repo.
+
 ## Aufbau
 
 ```text
@@ -240,7 +259,13 @@ plugins/coding-standard/
   skills/wordpress/SKILL.md       manueller Schalter Overlay WordPress
   skills/release/SKILL.md
   skills/deploy-check/SKILL.md
+  skills/rollout/SKILL.md         Release auf den Prod-Server — sofort oder zum Termin
   skills/pr/SKILL.md
+  server/setup-server.sh          Dev- oder Prod-Server: Docker, Tailscale, ufw, Edge-Caddy
+  server/edge-site                Anwendung an den Edge anschließen (DNS, Zertifikat)
+  server/rollout                  Release einspielen, sofort oder zum Termin
+  server/edge/                    Dockerfile (Caddy + DNS-Module) und compose.yaml des Edge
+  server/test-server.sh
   scripts/projekt-neu.sh          Bootstrap eines neuen Projekts
   scripts/test-projekt-neu.sh
   scripts/projekt-aufnehmen.sh    Bestandsaufnahme und Aufnahme eines bestehenden Projekts

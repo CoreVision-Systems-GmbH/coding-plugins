@@ -41,7 +41,7 @@ Ergänzt den Kern für <Art der Projekte>. Hier stehen Firmenentscheidungen; Idi
 3. **Health:** Endpunkt und Compose-Healthcheck.
 4. **Logs:** stdout, Struktur, keine PII.
 5. **Version im Produkt:** Build-Arg → sichtbar wo?
-6. **Lieferung:** `release.yml` → GHCR → `deploy/update.sh <tag>`; Migrationsregel.
+6. **Lieferung:** `release.yml` → GHCR → `deploy/update.sh <tag>` (auf Prod über `rollout`); Dev-Instanz über `deploy/dev.sh` und `compose.dev.yaml`; Migrationsregel.
 7. **Daten:** Volumes, Backup-Verfahren.
 8. **Qualitätsgates:** numerisch, prüfbar.
 

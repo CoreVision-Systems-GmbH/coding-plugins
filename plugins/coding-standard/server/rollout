@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# rollout — spielt ein GitHub-Release einer Anwendung auf diesem Prod-Server ein: sofort oder
+# zu einem geplanten Termin. Ohne Auftrag passiert nichts — es gibt keinen dauerhaften Timer.
+#
+#   sudo rollout <app> jetzt [tag]                        sofort; ohne Tag das neueste Release
+#   sudo rollout <app> planen "JJJJ-MM-TT HH:MM" [tag]     einmaliger Termin (Europe/Vienna);
+#                                                         ohne Tag wird das neueste Release beim
+#                                                         Planen festgeschrieben
+#   sudo rollout liste                                    geplante Termine
+#   sudo rollout absagen <termin-id>                      Termin entfernen
+#   sudo rollout <app> status                             laufende Fassung, Container, letzte Läufe
+#   sudo rollout <app> einrichten <eigentümer>/<repo>     Anwendung anmelden, Lieferdateien des
+#                                                         neuesten Releases holen (Erstinstallation)
+#   sudo rollout token                                    GitHub-Token (nur Lesen) hinterlegen
+#
+# Ablauf eines Rollouts: Release-Tag über die GitHub-API prüfen, compose.yaml und deploy/ des
+# Tags nach /opt/apps/<app>/ holen (die .env der Instanz bleibt), dann deploy/update.sh <tag> —
+# Sicherung, Abbild laden, Migration, Start, Zustandsprüfung, Rückweg. Protokoll:
+# /var/log/corevision/rollout.log.
+#
+# Termine liegen als Timer-Einheiten unter /etc/systemd/system/rollout-*.timer: Sie überstehen
+# einen Neustart und entfernen sich nach ihrem Lauf selbst.
+# Rückweg einer Fassung: sudo rollout <app> jetzt <alter-tag>.
+
+{
+set -euo pipefail
+
+W="${SERVER_WURZEL:-}"
+KONF="$W/etc/corevision/server.env"
+TOKEN_DATEI="$W/etc/corevision/github-token"
+APPS="$W/opt/apps"
+EINHEITEN="$W/etc/systemd/system"
+LOG_DIR="$W/var/log/corevision"
+SELBST="${ROLLOUT_BEFEHL:-/usr/local/bin/rollout}"
+ZONE="Europe/Vienna"
+
+hilfe() { sed -n '2,/^# Rückweg einer Fassung/p' "$0" | sed 's/^# \{0,1\}//'; }
+abbruch() { printf 'FEHLER  %s\n' "$1" >&2; exit 1; }
+ok()      { printf '   ok      %s\n' "$1"; }
+tun()     { printf '   mache   %s\n' "$1"; }
+vorhanden() { command -v "$1" >/dev/null 2>&1; }
+protokoll() { mkdir -p "$LOG_DIR"; printf '%s %s\n' "$(TZ=$ZONE date '+%F %T %Z')" "$1" >> "$LOG_DIR/rollout.log"; }
+
+[ $# -ge 1 ] || { hilfe; exit 1; }
+case "$1" in --help|-h) hilfe; exit 0 ;; esac
+
+rolle="$(sed -n 's/^ROLLE=//p' "$KONF" 2>/dev/null | head -1 || true)"
+[ -n "$rolle" ] || abbruch "$KONF fehlt — zuerst setup-server.sh ausführen."
+
+gh_api() { # gh_api <pfad> [-o datei] — GitHub-API mit dem hinterlegten Token
+    local pfad="$1"; shift
+    [ -s "$TOKEN_DATEI" ] || abbruch "GitHub-Token fehlt — sudo rollout token"
+    # Token über stdin (-H @-), nicht über die Kommandozeile — die sieht jeder in der Prozessliste.
+    printf 'Authorization: Bearer %s\n' "$(cat "$TOKEN_DATEI")" \
+        | curl -fsSL -H @- -H "Accept: application/vnd.github+json" "$@" "https://api.github.com$pfad"
+}
+repo_von() {
+    local conf="$APPS/$1/rollout.conf"
+    [ -f "$conf" ] || abbruch "$1 ist nicht angemeldet — sudo rollout $1 einrichten <eigentümer>/<repo>"
+    sed -n 's/^REPO=//p' "$conf" | head -1
+}
+# GitHub liefert JSON zeilenweise; sed genügt für das eine Feld und spart die Abhängigkeit von jq.
+neuestes_release() { gh_api "/repos/$1/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1 || true; }
+release_da() { gh_api "/repos/$1/releases/tags/$2" >/dev/null 2>&1; }
+pruefe_app() { printf '%s' "$1" | grep -qE '^[a-z0-9][a-z0-9-]*$' || abbruch "Ungültiger Anwendungsname: $1"; }
+nur_prod() { [ "$rolle" = prod ] || abbruch "rollout gilt nur auf dem Prod-Server. Auf dem Dev-Server: deploy/dev.sh im Projekt."; }
+
+tag_bestimmen() { # tag_bestimmen <repo> [tag] — ohne Tag das neueste Release
+    local repo="$1" tag="${2:-}"
+    if [ -z "$tag" ]; then
+        tag="$(neuestes_release "$repo")"
+        [ -n "$tag" ] || abbruch "$repo hat kein Release — erst /release im Projekt."
+    else
+        case "$tag" in v*) ;; *) tag="v$tag" ;; esac
+        release_da "$repo" "$tag" || abbruch "$repo hat kein Release $tag."
+    fi
+    printf '%s' "$tag"
+}
+
+lieferdateien_holen() { # lieferdateien_holen <app> <tag> — compose.yaml, .env.example und deploy/ des Tags
+    local app="$1" tag="$2" repo ziel tmp quelle
+    repo="$(repo_von "$app")"; ziel="$APPS/$app"
+    tmp="$(mktemp -d)"
+    gh_api "/repos/$repo/tarball/$tag" -o "$tmp/quelle.tar.gz"
+    tar -xzf "$tmp/quelle.tar.gz" -C "$tmp"
+    quelle="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -1)"
+    [ -f "$quelle/compose.yaml" ] && [ -x "$quelle/deploy/update.sh" ] \
+        || { rm -rf "$tmp"; abbruch "$repo $tag enthält kein compose.yaml bzw. ausführbares deploy/update.sh."; }
+    # Nur Lieferdateien übernehmen; .env und instanzeigene Dateien bleiben unberührt.
+    mkdir -p "$ziel/deploy"
+    cp "$quelle/compose.yaml" "$ziel/compose.yaml"
+    [ ! -f "$quelle/.env.example" ] || cp "$quelle/.env.example" "$ziel/.env.example"
+    cp -r "$quelle/deploy/." "$ziel/deploy/"
+    rm -rf "$tmp"
+    tun "Lieferdateien aus $repo $tag übernommen"
+}
+
+ausfuehren() { # ausfuehren <app> <tag> — der eigentliche Rollout
+    local app="$1" tag="$2" repo ziel
+    repo="$(repo_von "$app")"; ziel="$APPS/$app"
+    release_da "$repo" "$tag" || abbruch "$repo hat kein Release $tag."
+    [ -f "$ziel/.env" ] || abbruch "$ziel/.env fehlt — erst einrichten und deploy/install.sh (EINRICHTUNG.md, Teil C.3)."
+    # Nie zwei Rollouts derselben Anwendung gleichzeitig (Termin trifft auf „jetzt“).
+    if vorhanden flock; then
+        mkdir -p "$W/run/lock"; exec 9>"$W/run/lock/rollout-$app.lock"
+        flock -n 9 || abbruch "Für $app läuft gerade ein Rollout."
+    fi
+    protokoll "$app $tag: Beginn"
+    lieferdateien_holen "$app" "$tag"
+    if ( cd "$ziel" && deploy/update.sh "$tag" ); then
+        protokoll "$app $tag: erfolgreich"; ok "$app läuft in Fassung $tag"
+    else
+        protokoll "$app $tag: GESCHEITERT"; abbruch "update.sh ist gescheitert — Rückweg steht in der Ausgabe darüber."
+    fi
+}
+
+einheit_name() { printf 'rollout-%s-%s' "$1" "$(printf '%s' "$2" | tr -d ': -')"; }
+
+case "$1" in
+    liste)
+        found=0
+        for t in "$EINHEITEN"/rollout-*.timer; do
+            [ -f "$t" ] || continue; found=1
+            id="$(basename "$t" .timer)"; id="${id#rollout-}"
+            termin="$(sed -n 's/^# Termin: //p' "$t")"
+            # Termine laufen nicht nach (Persistent=false): War der Server zur Zeit aus, ist er verpasst.
+            zeit="$(printf '%s' "$termin" | cut -c1-16)"
+            sek="$(TZ=$ZONE date -d "$zeit" +%s 2>/dev/null || echo 0)"
+            [ "$sek" -ge "$(date +%s)" ] || termin="$termin — VERPASST, absagen und neu planen"
+            printf '%-32s %s\n' "$id" "$termin"
+        done
+        [ $found -eq 1 ] || echo "Keine Termine geplant."
+        exit 0 ;;
+    absagen)
+        [ $# -eq 2 ] || abbruch "Aufruf: rollout absagen <termin-id>  (siehe rollout liste)"
+        name="rollout-${2#rollout-}"
+        [ -f "$EINHEITEN/$name.timer" ] || abbruch "Kein Termin $2 (siehe rollout liste)."
+        systemctl disable --now "$name.timer" >/dev/null 2>&1 || true
+        rm -f "$EINHEITEN/$name.timer" "$EINHEITEN/$name.service"
+        systemctl daemon-reload
+        protokoll "Termin $name abgesagt"; ok "Termin $name abgesagt"
+        exit 0 ;;
+    token)
+        # Nie als Argument: Kommandozeilen stehen in der Prozessliste und im Verlauf.
+        printf 'GitHub-Token (fine-grained, nur Contents: read auf die App-Repos; Eingabe unsichtbar): ' >&2
+        IFS= read -rs token || true; printf '\n' >&2
+        [ -n "$token" ] || abbruch "Kein Token eingegeben."
+        mkdir -p "$(dirname "$TOKEN_DATEI")"; ( umask 077; printf '%s\n' "$token" > "$TOKEN_DATEI" )
+        chmod 600 "$TOKEN_DATEI"; ok "Token hinterlegt: $TOKEN_DATEI (600)"
+        exit 0 ;;
+esac
+
+[ $# -ge 2 ] || abbruch "Aufruf: rollout <app> jetzt|planen|status|einrichten … (siehe --help)"
+app="$1"; aktion="$2"; shift 2
+pruefe_app "$app"
+
+case "$aktion" in
+    einrichten)
+        { [ $# -eq 1 ] || [ $# -eq 2 ]; } && printf '%s' "$1" | grep -qE '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' \
+            || abbruch "Aufruf: rollout $app einrichten <eigentümer>/<repo> [tag]"
+        mkdir -p "$APPS/$app"
+        printf '# Angelegt von rollout einrichten\nREPO=%s\n' "$1" > "$APPS/$app/rollout.conf"
+        ok "$app → $1 ($APPS/$app/rollout.conf)"
+        # Erstinstallation vorbereiten: Lieferdateien des neuesten Releases, noch nichts starten.
+        tag="$(tag_bestimmen "$1" "${2:-}")"
+        lieferdateien_holen "$app" "$tag"
+        printf 'Weiter (Erstinstallation, einmal):\n'
+        printf '   1. %s/.env aus .env.example anlegen — APP_VERSION=%s, APP_DOMAIN, Werte aus dem Tresor\n' "$APPS/$app" "${tag#v}"
+        printf '   2. cd %s && sudo deploy/install.sh\n' "$APPS/$app"
+        printf 'Danach kommen neue Fassungen mit: sudo rollout %s jetzt | planen "<termin>"\n' "$app"
+        ;;
+    jetzt)
+        nur_prod
+        tag="$(tag_bestimmen "$(repo_von "$app")" "${1:-}")"
+        printf 'Rollout %s %s — jetzt\n' "$app" "$tag"
+        ausfuehren "$app" "$tag"
+        ;;
+    planen)
+        nur_prod
+        [ $# -ge 1 ] || abbruch "Aufruf: rollout $app planen \"JJJJ-MM-TT HH:MM\" [tag]"
+        termin="$1"
+        printf '%s' "$termin" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$' \
+            || abbruch "Termin als \"JJJJ-MM-TT HH:MM\" angeben, z. B. \"2026-10-03 02:00\" (Zeitzone $ZONE)."
+        sek="$(TZ=$ZONE date -d "$termin" +%s 2>/dev/null)" || abbruch "Kein gültiger Zeitpunkt: $termin"
+        [ "$sek" -gt "$(date +%s)" ] || abbruch "Der Termin $termin liegt nicht in der Zukunft."
+        # Der Tag wird jetzt festgeschrieben: Eingespielt wird genau die freigegebene Fassung,
+        # auch wenn bis zum Termin ein neueres Release erscheint.
+        tag="$(tag_bestimmen "$(repo_von "$app")" "${2:-}")"
+        name="$(einheit_name "$app" "$termin")"
+        [ ! -f "$EINHEITEN/$name.timer" ] || abbruch "Für $app gibt es um $termin schon einen Termin ($name)."
+        mkdir -p "$EINHEITEN"
+        printf '[Unit]\nDescription=Rollout %s %s\n\n[Service]\nType=oneshot\nEnvironment=ROLLOUT_EINHEIT=%s\nExecStart=%s %s ausfuehren %s\n' \
+            "$app" "$tag" "$name" "$SELBST" "$app" "$tag" > "$EINHEITEN/$name.service"
+        printf '# Termin: %s %s — %s %s\n[Unit]\nDescription=Termin für Rollout %s %s\n\n[Timer]\nOnCalendar=%s:00 %s\nAccuracySec=1s\nPersistent=false\n\n[Install]\nWantedBy=timers.target\n' \
+            "$termin" "$ZONE" "$app" "$tag" "$app" "$tag" "$termin" "$ZONE" > "$EINHEITEN/$name.timer"
+        systemctl daemon-reload
+        systemctl enable --now "$name.timer" >/dev/null
+        protokoll "$app $tag: geplant für $termin $ZONE ($name)"
+        ok "Termin $termin ($ZONE): $app → $tag"
+        printf 'Id: %s   Absagen: sudo rollout absagen %s\n' "${name#rollout-}" "${name#rollout-}"
+        ;;
+    ausfuehren)
+        # Vom Termin aufgerufen. Danach räumt der Termin sich selbst weg.
+        [ $# -eq 1 ] || abbruch "Aufruf: rollout $app ausfuehren <tag>"
+        nur_prod
+        # Aufräumen auch, wenn der Rollout scheitert: abbruch beendet das Skript sofort.
+        if [ -n "${ROLLOUT_EINHEIT:-}" ]; then
+            aufraeumen() {
+                systemctl disable "$ROLLOUT_EINHEIT.timer" >/dev/null 2>&1 || true
+                rm -f "$EINHEITEN/$ROLLOUT_EINHEIT.timer" "$EINHEITEN/$ROLLOUT_EINHEIT.service"
+                systemctl daemon-reload || true
+            }
+            trap aufraeumen EXIT
+        fi
+        ausfuehren "$app" "$1"
+        exit 0
+        ;;
+    status)
+        ziel="$APPS/$app"; [ -d "$ziel" ] || abbruch "Keine Instanz $app unter $APPS."
+        printf 'Anwendung %s (%s)\n' "$app" "$(repo_von "$app")"
+        printf '   Fassung  %s\n' "$(sed -n 's/^APP_VERSION=//p' "$ziel/.env" 2>/dev/null | head -1 || true)"
+        ( cd "$ziel" && docker compose ps --format '   {{.Name}}  {{.Status}}' 2>/dev/null ) || true
+        printf '   Termine\n'; "$0" liste | grep -E "^$app-" | sed 's/^/     /' || printf '     keine\n'
+        printf '   Letzte Läufe\n'; grep " $app " "$LOG_DIR/rollout.log" 2>/dev/null | tail -5 | sed 's/^/     /' || printf '     keine\n'
+        ;;
+    *) abbruch "Unbekannte Aktion: $aktion (jetzt, planen, status, einrichten)" ;;
+esac
+exit 0
+}
