@@ -37,7 +37,7 @@ angemeldet, sag es und biete `--no-github` an.
 |---|---|
 | **Zweck** | Zwei Vorschläge aus Name und Kontext als Optionen; den eigenen Text tippt der Nutzer über „Other". Zwei Sätze: was es tut, für wen. Geht in `CLAUDE.md`, `README.md`, ADR und die Repo-Beschreibung. |
 | **Stack** | Die Namen aus `--list-stacks`, jeweils mit LABEL als Beschreibung. Vorher die Stack-Wahl-Regel unten anwenden und den passenden Stack als erste Option mit „(empfohlen)“ markieren. |
-| **Firma / GitHub-Eigentümer** | „CoreVision Systems", „PCN GmbH", „anderer (frei eingeben)". |
+| **Firma / GitHub-Eigentümer** | „CoreVision Systems", „anderer (frei eingeben)". |
 | **Kunde/Instanz** | „intern" oder frei, z. B. „Musterkunde auf host1". |
 
 Zur Stack-Wahl (aus Name, Zweck und Kontext):
@@ -58,15 +58,14 @@ Zur Stack-Wahl (aus Name, Zweck und Kontext):
 
 Zum Eigentümer:
 
-- **CoreVision Systems** und **PCN GmbH** → Organisation `CoreVision-Systems-GmbH`; dort
-  liegen die Repos beider Firmen. Vorher prüfen, dass
+- **CoreVision Systems** → Organisation `CoreVision-Systems-GmbH`. Vorher prüfen, dass
   `gh api orgs/CoreVision-Systems-GmbH/memberships/<aktives konto>` eine aktive
   Mitgliedschaft meldet. Sonst sagen, dass die Organisation mit diesem Konto nicht
   erreichbar ist, und das aktive Konto als Eigentümer nehmen.
 - **anderer** → der eingegebene Wert, unverändert.
 
 Die Firma bestimmt außerdem `--company` (Rechteinhaber in `LICENSE`); ohne Angabe bleibt es
-bei `CoreVision Systems / PCN GmbH`.
+bei `CoreVision Systems GmbH`.
 
 ## 3. Zusammenfassung und Freigabe
 

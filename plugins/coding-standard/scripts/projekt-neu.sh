@@ -46,7 +46,7 @@ Pflicht:
 
 Optionen:
     --customer "<text>"   Kunde und Instanz (z. B. "Musterkunde auf host1"); ohne Angabe: intern
-    --company "<text>"    Rechteinhaber für LICENSE (Vorgabe: CoreVision Systems / PCN GmbH)
+    --company "<text>"    Rechteinhaber für LICENSE (Vorgabe: CoreVision Systems GmbH)
     --dir <pfad>          Zielordner (Vorgabe: ~/Code/<name>)
     --no-github           kein Repository anlegen, nur lokal
     --vault <pfad>        Vault, in dem Projektseite und Daily Log fortgeschrieben werden
@@ -133,7 +133,7 @@ stacks_auflisten() {
 # ----------------------------------------------------------------- Argumente
 NAME=""; STACK=""; OWNER=""; PURPOSE=""
 CUSTOMER="intern"
-COMPANY="CoreVision Systems / PCN GmbH"
+COMPANY="CoreVision Systems GmbH"
 DIR=""
 MIT_GITHUB=1
 VAULT=""

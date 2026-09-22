@@ -1,7 +1,7 @@
-# coding-plugins — Augmented Coding bei CoreVision Systems und PCN
+# coding-plugins — Augmented Coding bei CoreVision Systems
 
 Hier liegt der Arbeits- und Qualitätsstandard „Augmented Coding“ von CoreVision Systems GmbH
-und PCN GmbH in der Form, in der Werkzeuge ihn laden: heute als Plugin für Claude Code,
+in der Form, in der Werkzeuge ihn laden: heute als Plugin für Claude Code,
 künftig auch für verwandte Werkzeuge. Dieses Repository ist die **Verteilstelle** — es wird
 bei jedem Release aus dem internen Entwicklungs-Repository befüllt und nicht von Hand
 bearbeitet.
@@ -11,9 +11,9 @@ und Partner als PDF bekommen.
 
 ## Einrichtung in einem Lauf
 
-Das Einrichtungsskript installiert Git, die GitHub CLI und Claude Code, fügt den Marketplace
-hinzu, installiert das Plugin und prüft alles. Schon Vorhandenes überspringt es. Kein
-Administrator nötig.
+Ein neues Gerät richtest du nach **[EINRICHTUNG.md](EINRICHTUNG.md)** ein: das Kochbuch mit
+Skript und Handweg, Verzeichnisstruktur, Werkzeugen je Stack samt Quellen, den Handgriffen
+(Anmeldungen, Tresor, WSL2) und der Kontrolle. Die Kurzfassung:
 
 **Windows**, in einer PowerShell:
 
@@ -27,11 +27,10 @@ irm https://raw.githubusercontent.com/CoreVision-Systems-GmbH/coding-plugins/mai
 curl -fsSL https://raw.githubusercontent.com/CoreVision-Systems-GmbH/coding-plugins/main/setup/setup.sh | bash
 ```
 
-Danach eine neue Shell öffnen, `claude` starten und im Browser anmelden (Pro-, Max-, Team-
-oder Console-Konto; der kostenlose Claude-Tarif enthält Claude Code nicht). Wer die
-GitHub-Anmeldung gleich mit erledigen will: Windows
-`& ([scriptblock]::Create((irm …/setup.ps1))) -GitHubLogin`, sonst `… | bash -s -- --github-login`.
-Mit `-DryRun` bzw. `--dry-run` zeigt das Skript nur, was es tun würde. Quelle: [`setup/`](setup/).
+Das installiert die Grundausstattung (Git, GitHub CLI, Claude Code, KeePassXC, Plugin mit
+automatischer Aktualisierung). Die Werkzeuge eines Stacks kommen mit `-Stack laravel` bzw.
+`--stack laravel` dazu, die Kontrolle mit `-Check` bzw. `--check` — Aufrufe mit Schaltern in
+EINRICHTUNG.md, Abschnitt 4. Quelle: [`setup/`](setup/).
 
 ## Installieren von Hand (Claude Code)
 
@@ -51,8 +50,10 @@ automatisch — die beiden Befehle oben sind dann nicht nötig.
 
 ## Aktualisieren
 
-Neue Fassungen erscheinen als Release in diesem Repository. In unseren Projekten holt
-Claude Code sie nach dem Sessionstart selbst; von Hand geht es so:
+Neue Fassungen erscheinen als Release in diesem Repository. Mit automatischer
+Aktualisierung (setzt das Einrichtungsskript; in unseren Projekten ohnehin an) holt Claude
+Code sie beim Start einer Session selbst — Einzelheiten in EINRICHTUNG.md, Abschnitt 9.
+Von Hand geht es so:
 
 ```
 claude plugin marketplace update corevision
@@ -66,6 +67,7 @@ claude plugin update coding-standard@corevision
 | `.claude-plugin/marketplace.json` | Der Marketplace `corevision` |
 | `plugins/coding-standard/` | Das Plugin: Kern, Stack-Overlays, Skills (`/projekt-neu`, `/release`, `/deploy-check`, `/pr`), Hooks, Reviewer-Agents, Vorlagen |
 | `plugins/coding-standard/CHANGES.md` | Was sich je Fassung geändert hat |
+| `EINRICHTUNG.md` | Kochbuch: ein neues Gerät einrichten, per Skript oder von Hand |
 | `setup/` | Einrichtungsskripte für Windows (`setup.ps1`) und macOS/Linux/WSL (`setup.sh`) |
 
 ## Rückmeldungen
@@ -76,5 +78,5 @@ hierher veröffentlicht.
 
 ## Rechte
 
-Siehe [LICENSE](LICENSE): Nutzung in Projekten von CoreVision Systems und PCN GmbH sowie
+Siehe [LICENSE](LICENSE): Nutzung in Projekten von CoreVision Systems GmbH sowie
 deren Auftragnehmern und Partnern; alle weiteren Rechte vorbehalten.

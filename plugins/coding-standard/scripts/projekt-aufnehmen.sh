@@ -50,7 +50,7 @@ Optionen:
     --owner <owner>       GitHub-Eigentümer (Vorgabe: aus origin)
     --purpose "<text>"    Zweck in ein bis zwei Sätzen (Vorgabe: erster Absatz der README)
     --customer "<text>"   Kunde und Instanz; ohne Angabe: intern
-    --company "<text>"    Rechteinhaber für LICENSE (Vorgabe: CoreVision Systems / PCN GmbH)
+    --company "<text>"    Rechteinhaber für LICENSE (Vorgabe: CoreVision Systems GmbH)
     --vault <pfad>        Vault, in dem Projektakte und Daily Log fortgeschrieben werden
     --apply               anlegen statt nur berichten; verlangt einen sauberen Arbeitsbaum
     --help                diese Hilfe
@@ -130,7 +130,7 @@ pruefe() { # <stufe> <0=ok|1=fehlt> <beschreibung> [verweis]
 # ----------------------------------------------------------------- Argumente
 DIR=""; STACK_ARG=""; NAME_ARG=""; OWNER_ARG=""; PURPOSE_ARG=""
 CUSTOMER="intern"
-COMPANY="CoreVision Systems / PCN GmbH"
+COMPANY="CoreVision Systems GmbH"
 VAULT=""
 APPLY=0
 

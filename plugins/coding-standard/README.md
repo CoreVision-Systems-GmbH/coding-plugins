@@ -1,6 +1,6 @@
 # coding-standard
 
-Das Firmen-Plugin von PCN GmbH und CoreVision Systems für Claude Code. Es bringt den
+Das Firmen-Plugin von CoreVision Systems für Claude Code. Es bringt den
 Arbeitsstandard, die Stack-Regeln, die wiederkehrenden Abläufe, ein Geländer gegen
 zerstörende Git-Befehle und die Reviewer-Agents mit.
 

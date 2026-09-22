@@ -7,6 +7,34 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [0.8.0] — 2026-09-22
+
+### Hinzugefügt
+
+- **Einrichtungs-Kochbuch `EINRICHTUNG.md`** im Verteil-Repo: ein neues Windows-, macOS- oder
+  Linux-Gerät vollständig einrichten — per Skript oder von Hand, mit Verzeichnisstruktur
+  (`~/Code`, `~/Tresor`), Werkzeugen je Stack samt offizieller Quelle, den Handgriffen
+  (Anmeldungen, Git-Identität, Tresor-Datei, Herd, WSL2 und Docker Desktop), Kontrolle,
+  Aktualisierung, Fehlerbildern und Rückweg.
+- Einrichtungsskripte: `--stack`/`-Stack` installiert die Werkzeuge eines Stacks (PHP 8.4 mit
+  `intl`, Composer, Laravel-Installer, Node 24, Docker, Python 3.12, pipx mit ruff und pytest,
+  ShellCheck, PSScriptAnalyzer); `--check`/`-Check` prüft ein Gerät, ohne etwas zu
+  installieren; `--liste`/`-Liste` zeigt, was ein Stack braucht und woher es kommt. Die
+  Grundausstattung enthält jetzt KeePassXC und die Ordner `~/Code` und `~/Tresor`.
+- Das Einrichtungsskript schaltet die **automatische Aktualisierung** des Standards ein: Neue
+  Fassungen kommen beim Start einer Session von selbst. Offene Handgriffe nennt es am Ende
+  einzeln, statt sie stillschweigend zu überspringen.
+
+### Geändert
+
+- GitHub CLI kommt unter Debian/Ubuntu aus dem offiziellen apt-Repo von GitHub.
+- `setup.ps1` schließt bei einem Fehler nicht mehr das PowerShell-Fenster (`irm | iex`).
+
+- Der Standard ist allein Sache der CoreVision Systems GmbH. `/projekt-neu` bietet als Firma
+  nur noch „CoreVision Systems“ oder einen anderen Eigentümer an; Rechteinhaber in `LICENSE`
+  ist ohne `--company` jetzt „CoreVision Systems GmbH“ (auch bei `/projekt-aufnehmen`).
+  Kontakt in Plugin, Marketplace und Rechtetext des Verteil-Repos: `info@cvsystems.ai`.
+
 ## [0.7.0] — 2026-09-16
 
 ### Hinzugefügt

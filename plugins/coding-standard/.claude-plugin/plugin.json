@@ -1,11 +1,11 @@
 {
   "name": "coding-standard",
-  "version": "0.7.0",
-  "description": "Arbeits- und Qualitätsstandard für Coding-Sessions bei PCN und CoreVision: Kern und Stack-Overlays (Laravel, FastAPI, Script, Astro, WordPress; Next.js als Ausnahme), die ein SessionStart-Hook in erklärten Repos automatisch lädt; /projekt-neu legt ein neues Projekt samt Repository an, /projekt-aufnehmen nimmt ein bestehendes auf; Ablauf-Skills /release, /deploy-check und /pr; ein PreToolUse-Hook gegen zerstörende Git-Befehle; sieben Reviewer-Agents.",
+  "version": "0.8.0",
+  "description": "Arbeits- und Qualitätsstandard für Coding-Sessions bei CoreVision Systems: Kern und Stack-Overlays (Laravel, FastAPI, Script, Astro, WordPress; Next.js als Ausnahme), die ein SessionStart-Hook in erklärten Repos automatisch lädt; /projekt-neu legt ein neues Projekt samt Repository an, /projekt-aufnehmen nimmt ein bestehendes auf; Ablauf-Skills /release, /deploy-check und /pr; ein PreToolUse-Hook gegen zerstörende Git-Befehle; sieben Reviewer-Agents.",
   "author": {
-    "name": "CoreVision Systems / PCN GmbH",
-    "email": "github.pcn@pcn.at",
-    "url": "https://www.pcn.team"
+    "name": "CoreVision Systems GmbH",
+    "email": "info@cvsystems.ai",
+    "url": "https://cvsystems.ai"
   },
   "homepage": "https://github.com/CoreVision-Systems-GmbH/claude-standard",
   "keywords": [
