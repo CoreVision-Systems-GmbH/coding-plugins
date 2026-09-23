@@ -7,6 +7,15 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [0.9.1] — 2026-09-23
+
+### Behoben
+
+- **`claude-review` war bei jedem Dependabot-PR rot.** Läufe von Dependabot bekommen nur
+  Dependabot-Secrets, das Token für die Durchsicht blieb leer. Der Auftrag entfällt für diese
+  PRs jetzt, wie schon ohne `CLAUDE_REVIEW_ENABLED`. Bestehende Projekte übernehmen die Zeile
+  `if:` aus `templates/repo/.github/workflows/claude-review.yml` von Hand.
+
 ## [0.9.0] — 2026-09-23
 
 ### Hinzugefügt

@@ -82,6 +82,9 @@ ersetzen_in_datei() {
     printf '%s\n' "$inhalt" > "$datei"
 }
 
+# Setzt alle Schlüssel der stack.conf zurück, auch die hier ungelesenen — sonst bliebe der
+# Wert einer vorher gelesenen Vorlage stehen (SC2034).
+# shellcheck disable=SC2034
 stack_lesen() { # <stack> — setzt LABEL DESCRIPTION REQUIRES CONTAINERIZED MARKER
     LABEL=""; DESCRIPTION=""; REQUIRES=""; CONTAINERIZED=0; MARKER=0
     # shellcheck disable=SC1090

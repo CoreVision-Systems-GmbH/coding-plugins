@@ -12,6 +12,9 @@
 # Die edge-site-Fälle mit DNS-API brauchen jq (auf dem Server installiert es setup-server.sh);
 # ohne jq werden sie übersprungen — die CI führt sie auf Ubuntu aus.
 
+# Prüfmuster `[ … ]; behaupte "…" $?`: $? soll das Ergebnis der Bedingung sein (SC2319).
+# shellcheck disable=SC2319
+
 set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -11,6 +11,8 @@ name: claude-review
 # Dazu muss die GitHub-App „Claude" Zugriff auf dieses Repository haben.
 # Solange die Variable nicht auf "true" steht, wird der Auftrag übersprungen
 # statt rot zu werden — ein fehlendes Geheimnis ist kein Fehler des Pull Requests.
+# Aus demselben Grund entfallen PRs von Dependabot: Deren Läufe bekommen nur
+# Dependabot-Secrets, das Token bliebe leer und der Auftrag würde rot.
 
 on:
   pull_request:
@@ -24,7 +26,7 @@ permissions:
 
 jobs:
   review:
-    if: ${{ vars.CLAUDE_REVIEW_ENABLED == 'true' }}
+    if: ${{ vars.CLAUDE_REVIEW_ENABLED == 'true' && github.event.pull_request.user.login != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
 
     steps:

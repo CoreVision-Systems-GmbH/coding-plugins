@@ -35,7 +35,7 @@ if ! deploy/backup.sh; then
     abbruch "Die Sicherung ist gescheitert. Ohne Sicherung wird nicht aktualisiert."
 fi
 
-sicherung="$(ls -1t /opt/backups/{{NAME}}/*.dump 2>/dev/null | head -n 1 || true)"
+sicherung="$(ls -1t "/opt/backups/{{NAME}}"/*.dump 2>/dev/null | head -n 1 || true)"
 
 rueckweg() {
     printf '\nRückweg: deploy/update.sh %s\n' "$alt" >&2

@@ -201,6 +201,9 @@ check_rm() {
     esac
 
     expanded="$path"
+    # Die Tilde im Muster ist gewollt wörtlich: Sie steht so im Befehl und wird hier erst
+    # selbst durch $HOME ersetzt (SC2088).
+    # shellcheck disable=SC2088
     case "$expanded" in
       "~/"*) expanded="${HOME}/${expanded#\~/}" ;;
     esac
