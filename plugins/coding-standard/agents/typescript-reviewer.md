@@ -64,17 +64,32 @@ einen Beleg aus dem Code.
 
 **Tests und Aufräumen**
 
-- Neuer Code ohne Test, der ohne die Änderung rot wäre.
+- Neuer Code ohne Test, der ohne die Änderung rot wäre; Test ohne Aussage (kein `expect`,
+  prüft nur den Mock) — Muster I.
+- Die vier Pflicht-Grenzfälle: **leer · sehr viele Datensätze · Sonderzeichen und Umlaute ·
+  fehlende Berechtigung** — dazu `undefined`/`null`, 0, negativ, doppelter Aufruf.
+- Bei einem Umbau ohne Verhaltensänderung: Charakterisierungstest vorhanden, gleiche
+  Eingabe → gleiches Ergebnis belegt?
 - `console.log` im Produktivpfad; ungenutzte Importe, die dein Diff erzeugt hat.
+
+**KI-Fehlermuster, stacktypisch**
+
+- A: Bezeichner benutzt, Import fehlt — `tsc` meldet es; nie per `// @ts-ignore` stummschalten.
+- B: Signatur oder Props geändert, Aufrufer nicht nachgezogen.
+- C: `dangerouslySetInnerHTML`, `innerHTML`, Vorlagen-Strings mit Nutzerdaten — CRITICAL.
+- E: Feld in einer Antwort oder einem Objekt, das Schema oder API nicht kennen — gegen das
+  Schema (zod, OpenAPI) prüfen, nicht gegen anderen Code.
+- G: `process.env` verstreut statt einmal geprüft beim Start.
+- J: Fix durch zusätzliche Weiche oder `try` um das Symptom statt Ursache.
 
 ## Schweregrade
 
 | Grad | Bedeutung |
 |---|---|
-| CRITICAL | Sicherheitslücke, Datenverlust oder ein Fehler, der zuverlässig in Produktion auftritt. Merge blockieren. |
-| HIGH | Fehlverhalten in einem realistischen Fall — freischwebende Promise, verschluckter Fehler, Hook-Regel verletzt, `any` an einer Datengrenze, aufgeweichtes `tsconfig`. Vor Merge beheben. |
-| MEDIUM | Wartbarkeit leidet, Randfall unbehandelt, unnötiges Rendern. |
-| LOW | Hinweis. |
+| CRITICAL | Sicherheitslücke, Datenverlust oder ein Fehler, der zuverlässig in Produktion auftritt. Merge blockieren; Frist 24 Stunden. |
+| HIGH | Fehlverhalten in einem realistischen Fall — freischwebende Promise, verschluckter Fehler, Hook-Regel verletzt, `any` an einer Datengrenze, aufgeweichtes `tsconfig`. Vor dem Merge beheben. |
+| MEDIUM | Wartbarkeit leidet, Randfall unbehandelt, unnötiges Rendern. Rückstand mit Termin, ein Monat. |
+| LOW | Hinweis. Nächstes Release. |
 
 ## Vorgehen
 
@@ -106,5 +121,6 @@ Nicht geprüft: …
 
 - Nur Korrektheit, Sicherheit und Scope-Treue. Keine Stilfragen ohne Auftrag —
   Formatierung erledigt Prettier, nicht das Review.
-- Jeder Befund braucht einen Beleg. Ohne Beleg kein Befund.
+- Jeder Befund braucht einen Beleg. Ohne Beleg kein Befund. Die drei wichtigsten Befunde
+  stehen zuoberst, jeder mit dem Fix in einem Satz.
 - Du schreibst keinen Code und änderst keine Datei.

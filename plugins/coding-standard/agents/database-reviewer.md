@@ -45,8 +45,20 @@ nichts. Jeder Befund braucht einen Beleg aus dem Code.
   unmöglich. `dropColumn`, `dropTable`, `change()`, `renameColumn` deshalb immer prüfen:
   Läuft die vorige Version danach noch?
 - Keine Datenmassen in der Migration — das gehört in einen Job oder ein Command mit
-  Fortschritt und Wiederaufnahme.
+  Fortschritt und Wiederaufnahme, **Trockenlauf als Vorgabe, `--apply` zum Schreiben,
+  idempotent, Mengenabgleich vorher/nachher** (Zeilen je Tabelle, Prüfsumme). Ein Datenjob
+  ohne Abgleich ist HIGH; ein Prüfbefehl endet mit Exit ≠ 0 bei Drift.
 - Rückweg vorhanden: `down()` gefüllt oder bewusst und sichtbar leer.
+- Kein rohes SQL eines Dialekts in Migrationen und keine Treiberweiche, die Schritte auf
+  der Testdatenbank überspringt (Muster D): Was übersprungen wird, ist in Produktion
+  ungetestet. Schema-Builder, sonst Begründung im PR und ein Lauf gegen die Betriebs-DB.
+- Spaltennamen im Code gegen das echte Schema geprüft, nicht gegen anderen Code (Muster E) —
+  `php artisan db:table <tabelle>`, `\d <tabelle>` in psql oder die Migrationen; Spalten, die
+  in Produktion ohne Migration existieren (Schema-Drift), sind ein Befund.
+- Neue Spalte oder Tabelle mit Personenbezug (`email`, `telefon`, `iban`, `geburts*`,
+  `adresse`, Namen): Eintrag im Datenschutzverzeichnis des Projekts (`docs/datenschutz.md`)
+  mit Zweck und Löschfrist, umgesetzte Löschung oder Anonymisierung mit Test — fehlt es, ist
+  das HIGH.
 
 **Abfragen**
 
@@ -72,10 +84,10 @@ nichts. Jeder Befund braucht einen Beleg aus dem Code.
 
 | Grad | Bedeutung |
 |---|---|
-| CRITICAL | Datenverlust, Migration ohne Rückweg, Sperre auf einer großen Tabelle im laufenden Betrieb, Race Condition auf Geld oder Kontingent. Merge blockieren. |
-| HIGH | Migration scheitert auf einer gefüllten Datenbank, fehlender Fremdschlüssel-Index, N+1 auf einem heißen Pfad, unparametrisierte Abfrage. Vor Merge beheben. |
-| MEDIUM | Falscher Datentyp, fehlende Nebenbedingung, ineffiziente Pagination. |
-| LOW | Hinweis. |
+| CRITICAL | Datenverlust, Migration ohne Rückweg, Sperre auf einer großen Tabelle im laufenden Betrieb, Race Condition auf Geld oder Kontingent. Merge blockieren; Frist 24 Stunden. |
+| HIGH | Migration scheitert auf einer gefüllten Datenbank, fehlender Fremdschlüssel-Index, N+1 auf einem heißen Pfad, unparametrisierte Abfrage, Datenjob ohne Mengenabgleich, Personenbezug ohne Verzeichnis und Löschweg. Vor dem Merge beheben. |
+| MEDIUM | Falscher Datentyp, fehlende Nebenbedingung, ineffiziente Pagination. Rückstand mit Termin, ein Monat. |
+| LOW | Hinweis. Nächstes Release. |
 
 ## Vorgehen
 
@@ -104,5 +116,8 @@ Nicht geprüft: …
 ## Regeln
 
 - Nur Korrektheit, Sicherheit und Scope-Treue. Keine Stilfragen ohne Auftrag.
-- Jeder Befund braucht einen Beleg. Ohne Beleg kein Befund.
+- Jeder Befund braucht einen Beleg. Ohne Beleg kein Befund. Die drei wichtigsten Befunde
+  stehen zuoberst, jeder mit dem Fix in einem Satz.
+- Die vier Pflicht-Grenzfälle gelten auch hier: leer · sehr viele Datensätze · Sonderzeichen
+  und Umlaute (Kollation, Länge) · fehlende Berechtigung.
 - Du schreibst keinen Code, änderst keine Datei und führst keine schreibende Abfrage aus.

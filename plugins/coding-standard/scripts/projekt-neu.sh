@@ -110,7 +110,7 @@ gh_pfad() {
 }
 
 stack_lesen() { # <stack> — setzt LABEL DESCRIPTION REQUIRES CONTAINERIZED MARKER
-    LABEL=""; DESCRIPTION=""; REQUIRES=""; CONTAINERIZED=0; MARKER=0
+    LABEL=""; DESCRIPTION=""; REQUIRES=""; DATABASE=""; CONTAINERIZED=0; MARKER=0
     # shellcheck disable=SC1090
     . "$vorlagen/$1/stack.conf"
 }
@@ -235,6 +235,8 @@ declare -A ERSATZ=(
     [PURPOSE]="$PURPOSE"
     [STACK]="$STACK"
     [STACK_LABEL]="$LABEL"
+    # Zieldatenbank aus stack.conf — die KI soll keinen Dialekt raten.
+    [DATABASE]="${DATABASE:-keine}"
     [OWNER]="$OWNER"
     [OWNER_LC]="$OWNER_LC"
     # CODEOWNERS braucht einen Benutzer oder ein Team, keine Organisation: bei

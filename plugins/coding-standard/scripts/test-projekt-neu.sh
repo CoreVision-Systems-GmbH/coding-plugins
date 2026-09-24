@@ -193,6 +193,9 @@ grep -rlE '\{\{[A-Z_][A-Z0-9_]*\}\}' "$pdir" --exclude-dir=.venv >/dev/null 2>&1
 
 grep -q 'env_prefix="FASTAPI_"' "$pdir/app/settings.py" \
     && ok "ENV-Präfix abgeleitet (FASTAPI_)" || nichtok "ENV-Präfix abgeleitet (FASTAPI_)"
+grep -q 'Datenbank: SQLite (Datei unter DATA_DIR)\.' "$pdir/CLAUDE.md" \
+    && ok "CLAUDE.md nennt die Zieldatenbank aus stack.conf" \
+    || nichtok "CLAUDE.md nennt die Zieldatenbank aus stack.conf"
 grep -q 'ghcr.io/musterorg/probe-fastapi' "$pdir/compose.yaml" \
     && ok "compose.yaml zeigt auf das richtige Abbild" \
     || nichtok "compose.yaml zeigt auf das richtige Abbild"

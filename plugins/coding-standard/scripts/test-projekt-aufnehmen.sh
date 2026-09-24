@@ -212,6 +212,9 @@ enthaelt "kein Stack erkannt" "keiner erkannt"
 lauf 1 "--apply ohne origin und ohne --owner wird abgewiesen" --dir "$b" --apply --stack script
 enthaelt "Meldung nennt --owner" "--owner"
 lauf 0 "--apply mit --stack script und --owner" --dir "$b" --apply --stack script --owner musterorg
+grep -q 'Datenbank: keine\.' "$b/CLAUDE.md" \
+    && ok "CLAUDE.md nennt die Zieldatenbank des Stacks (keine)" \
+    || nichtok "CLAUDE.md nennt die Zieldatenbank des Stacks (keine)"
 grep -q 'stack: script' "$b/.coding-standard" \
     && ok "Markerdatei nennt script" || nichtok "Markerdatei nennt script"
 grep -q '^0.1.0$' "$b/version.txt" \

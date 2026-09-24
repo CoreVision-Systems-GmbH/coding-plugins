@@ -23,6 +23,17 @@ Die Lücken aus der Bestandsaufnahme — je Punkt ein eigener PR, jeder mit sein
 <!-- Entscheidungen, die noch fehlen; Fragen an den Kunden; Dinge, die bewusst vertagt
      wurden — mit dem Grund, warum. -->
 
+## Rückstände
+
+<!-- Befunde aus Review, Sicherheitsprüfung oder Betrieb, die nicht sperren, aber erledigt
+     werden müssen — je mit Schweregrad, Termin und Quelle (PR, Lauf). Fristen des Kerns:
+     HOCH vor dem Release, spätestens eine Woche; MITTEL ein Monat; HINWEIS nächstes Release.
+     Erledigtes wird gelöscht, nicht abgehakt. -->
+
+| Befund | Schwere | Termin | Quelle |
+|---|---|---|---|
+|  |  |  |  |
+
 ## Prüfstand
 
 <!-- Was zuletzt tatsächlich gelaufen ist, mit Datum und Ergebnis. Nur eintragen, was

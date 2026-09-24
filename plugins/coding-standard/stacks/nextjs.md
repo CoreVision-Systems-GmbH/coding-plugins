@@ -17,7 +17,7 @@ Für Firmenseite, Landingpages, Doku und Blog gilt `astro` (pflegt der Kunde die
 - Keine Geheimnisse in `NEXT_PUBLIC_*` — alles darin liegt im Browser.
 - Server Actions und Route Handler prüfen Session und Rechte selbst; der Proxy ist zusätzliche, nie einzige Schranke.
 - Kein `dangerouslySetInnerHTML` mit Nutzerdaten; keine Redirects aus Query-Parametern ohne Allow-List.
-- Nur die Active-LTS-Linie; ein Sicherheits-Release wird innerhalb von sieben Tagen eingespielt (monatliches, vorangekündigtes Programm seit Juli 2026).
+- Nur die Active-LTS-Linie; ein Sicherheits-Release wird innerhalb von 72 Stunden eingespielt, ein kritisches innerhalb von 24 (monatliches, vorangekündigtes Programm seit Juli 2026) — die Fristen des Kerns.
 
 ## 3. Werkzeugkette
 - Befehle aus `package.json`: ESLint, `tsc --noEmit`, Tests (sofern vorhanden), `next build`. `npm ci` in CI, Lockfile committed.

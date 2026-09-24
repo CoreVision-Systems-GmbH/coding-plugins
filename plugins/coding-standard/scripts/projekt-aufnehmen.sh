@@ -86,7 +86,7 @@ ersetzen_in_datei() {
 # Wert einer vorher gelesenen Vorlage stehen (SC2034).
 # shellcheck disable=SC2034
 stack_lesen() { # <stack> — setzt LABEL DESCRIPTION REQUIRES CONTAINERIZED MARKER
-    LABEL=""; DESCRIPTION=""; REQUIRES=""; CONTAINERIZED=0; MARKER=0
+    LABEL=""; DESCRIPTION=""; REQUIRES=""; DATABASE=""; CONTAINERIZED=0; MARKER=0
     # shellcheck disable=SC1090
     . "$vorlagen/$1/stack.conf"
 }
@@ -210,7 +210,7 @@ case " $erkannt " in *" nextjs "*) AUSNAHME="nextjs" ;; esac
 if [ -n "$STACK" ]; then
     stack_lesen "$STACK"
 else
-    LABEL="kein Stack-Overlay, nur Kern"; CONTAINERIZED=0; MARKER=0
+    LABEL="kein Stack-Overlay, nur Kern"; DATABASE=""; CONTAINERIZED=0; MARKER=0
 fi
 
 # --------------------------------------------------------------- Zweck
@@ -444,6 +444,8 @@ declare -A ERSATZ=(
     [PURPOSE]="$PURPOSE"
     [STACK]="${STACK:-kein}"
     [STACK_LABEL]="$LABEL"
+    # Zieldatenbank aus stack.conf; ohne erkannten Stack trägt der Mensch sie ein.
+    [DATABASE]="${DATABASE:-unbekannt — in CLAUDE.md eintragen}"
     [OWNER]="$OWNER"
     [OWNER_LC]="$OWNER_LC"
     [OWNER_USER]="${konto:-$OWNER}"

@@ -17,10 +17,12 @@ Du änderst nichts. Jeder Befund braucht einen Beleg aus dem Code.
 - Jede neue Resource, Route, Action, jeder Job und jedes Command: Wer darf das?
 - Policy oder Gate vorhanden **und** registriert; wird sie im Pfad tatsächlich aufgerufen
   (`authorize`, `can`, `Gate::allows`, `->can()` an der Route)?
-- Objektbezogen geprüft, nicht nur „ist angemeldet". Bei mehreren Mandanten: Filterung
-  nach Mandant im Query, nicht erst in der Ansicht.
+- Objektbezogen geprüft, nicht nur „ist angemeldet". Bei mehreren Mandanten: Filter
+  **zentral am Modell** (Global Scope oder Tenancy-Paket), nicht je Abfrage von Hand; ein
+  ungefiltertes „alle holen“ auf einer Mandantentabelle ist HIGH.
 - Test paarweise vorhanden — erlaubt **und** verweigert. Fehlt der Verweigerungs-Test,
-  ist die Policy ungeprüft.
+  ist die Policy ungeprüft. Bei Mandanten dazu die Kreuzprobe: A liest B → Abweisung
+  (403/404), nicht leere Liste.
 
 **Filament-Middleware-Stapel** — der häufigste stille Fehler
 
@@ -60,8 +62,16 @@ Du änderst nichts. Jeder Befund braucht einen Beleg aus dem Code.
 - Additiv: kein `dropColumn`, `dropTable`, `change()`, `renameColumn` in einem Schritt,
   der zusammen mit laufendem Code ausgeliefert wird — erst erweitern, später entfernen.
 - Reihenfolge und Fremdschlüssel stimmen; Indizes für Fremdschlüssel und Filterspalten da.
-- Keine Datenmassen in der Migration; große Umstellungen als Job oder Command.
+- Keine Datenmassen in der Migration; große Umstellungen als Job oder Command mit
+  Trockenlauf als Vorgabe, `--apply` zum Schreiben, idempotent und mit Mengenabgleich
+  vorher/nachher — ohne Abgleich HIGH.
 - `down()` vorhanden oder bewusst leer, nicht halb.
+- Kein rohes SQL eines Dialekts (`CONCAT`, `MODIFY COLUMN`, `UPDATE … SET t.col`) und keine
+  Treiberweiche `DB::getDriverName()` in Migrationen (Muster D): Was auf SQLite übersprungen
+  wird, ist in Produktion ungetestet. Schema-Builder oder eine Begründung im PR.
+- Jeder neue Spaltenname gegen das echte Schema geprüft (`php artisan db:table <tabelle>`
+  oder die Migrationen), nicht gegen den Code (Muster E). Spalten, die in Produktion ohne
+  Migration existieren (Schema-Drift), sind ein Befund.
 
 **Konfiguration**
 
@@ -74,16 +84,30 @@ Du änderst nichts. Jeder Befund braucht einen Beleg aus dem Code.
 
 - Keine Geschäftsregeln in Controllern, Filament-Resources, Page-Klassen, Table-Callbacks
   oder React-Komponenten.
-- Kein doppelter Ablauf zwischen Filament und Inertia.
+- Kein doppelter Ablauf zwischen Filament und Inertia; keine zweite Berechnung derselben
+  Größe an zwei Orten (Anzeige rechnet anders als Bericht).
+
+**KI-Fehlermuster, stacktypisch**
+
+- A: Klasse benutzt, `use` fehlt — Larastan meldet `class.notFound`; nie stummschalten.
+- B: Signatur geändert, Aufrufer nicht nachgezogen — `arguments.count`.
+- G: `env()` außerhalb `config/` — kein `ignoreErrors` dafür in `phpstan.neon`; wer das
+  stummschaltet, hat den Fehler nicht behoben.
+- Fallen: `redirect()->back()` in einer GET-Route — ohne Referer nimmt Laravel die letzte
+  GET-URL aus der Session; ist das die Route selbst, entsteht eine Weiterleitungsschleife,
+  ohne Session landet es auf `/`. Explizites Ziel `redirect()->route(…)`. Dazu `{!! !!}` mit
+  Nutzerdaten und dompdf mit `isPhpEnabled`/`isRemoteEnabled`.
+- Die vier Pflicht-Grenzfälle: leer · sehr viele Datensätze · Sonderzeichen und Umlaute ·
+  fehlende Berechtigung.
 
 ## Schweregrade
 
 | Grad | Bedeutung |
 |---|---|
-| CRITICAL | Autorisierung fehlt oder greift nicht, Datenabfluss, zerstörende Migration. Merge blockieren. |
-| HIGH | Fehlverhalten in einem realistischen Fall, N+1 auf einem heißen Pfad, `env()` außerhalb `config/`, fehlender Verweigerungs-Test. Vor Merge beheben. |
-| MEDIUM | Schichtverletzung ohne unmittelbaren Schaden, fehlender Index, unvollständige Validierung. |
-| LOW | Hinweis. |
+| CRITICAL | Autorisierung fehlt oder greift nicht, Datenabfluss, zerstörende Migration, Codeausführung über Ausgabe oder Berichtsgenerator. Merge blockieren; Frist 24 Stunden. |
+| HIGH | Fehlverhalten in einem realistischen Fall, N+1 auf einem heißen Pfad, `env()` außerhalb `config/`, fehlender Verweigerungs-Test, Mandantenabfrage ohne zentralen Filter, Datenjob ohne Mengenabgleich. Vor dem Merge beheben. |
+| MEDIUM | Schichtverletzung ohne unmittelbaren Schaden, fehlender Index, unvollständige Validierung. Rückstand mit Termin, ein Monat. |
+| LOW | Hinweis. Nächstes Release. |
 
 ## Vorgehen
 
@@ -112,5 +136,6 @@ Nicht geprüft: …
 ## Regeln
 
 - Nur Korrektheit, Sicherheit und Scope-Treue. Keine Stilfragen ohne Auftrag.
-- Jeder Befund braucht einen Beleg. Ohne Beleg kein Befund.
+- Jeder Befund braucht einen Beleg. Ohne Beleg kein Befund. Die drei wichtigsten Befunde
+  stehen zuoberst, jeder mit dem Fix in einem Satz.
 - Du schreibst keinen Code und änderst keine Datei.

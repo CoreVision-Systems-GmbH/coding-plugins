@@ -4,6 +4,13 @@
 
 **Was:**
 
+**Abnahmekriterien** — nummeriert, je mit Nachweis (Test, Datei:Zeile, Klickweg) und der
+Invariante, die erhalten bleibt:
+
+| Nr. | Kriterium | Nachweis |
+|---|---|---|
+| A1 |  |  |
+
 **Warum:**
 
 **Nicht Teil davon:**
@@ -44,8 +51,13 @@
 
 Nur ankreuzen, was belegt ist.
 
-- [ ] Funktion umgesetzt und geprüft — automatisiert und auf dem manuellen Weg
+- [ ] Funktion umgesetzt und geprüft — automatisiert und auf dem manuellen Weg; jedes
+      Abnahmekriterium hat einen Nachweis
 - [ ] Formatter, Linter, Statik, Tests, Build lokal grün, mit Ausgabe belegt
+- [ ] Review in frischem Kontext gelaufen; bei Anmeldung, Rechten, Datenbank oder Mandanten
+      auch der Sicherheits-Review
+- [ ] Bei Rechten, Schema, Mandanten, Anmeldung, Geld oder vollständig KI-erzeugtem Bestand:
+      ein zweites Modell oder ein zweiter Mensch hat gegengeprüft
 - [ ] `CHANGES.md` unter „Unveröffentlicht" ergänzt
 - [ ] README oder ADR nachgezogen, falls Betrieb oder Richtung betroffen sind
 - [ ] Diff sauber: keine fremden Änderungen, keine Debug-Reste, keine Secrets

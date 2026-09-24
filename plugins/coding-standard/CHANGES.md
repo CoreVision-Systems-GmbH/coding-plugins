@@ -7,6 +7,81 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [0.10.0] — 2026-09-25
+
+### Hinzugefügt
+
+- **`CLAUDE.md` neuer Projekte** trägt die Zieldatenbank (`Datenbank: PostgreSQL 17` usw.,
+  aus `stack.conf` je Stack — die KI soll keinen Dialekt raten), ein **Glossar** für
+  deutsche Fachbegriffe in Bezeichnern (ASCII-Schreibweise für Code und Datenbank, Umlaut
+  für die Oberfläche) und einen Abschnitt **„Bestätigte Schnittstellen“** für Spalten,
+  Endpunkte und Befehle, die gegen das echte System geprüft wurden. `/projekt-aufnehmen`
+  legt dieselbe `CLAUDE.md` an; ohne erkannten Stack steht bei der Datenbank „unbekannt —
+  in CLAUDE.md eintragen“.
+- **PR-Vorlage** (auch die Fallback-Vorlage des Skills `/pr`) mit Tabelle der
+  Abnahmekriterien (A1…An, je mit Nachweis) und drei neuen Punkten in der Definition of Done:
+  jedes Kriterium hat einen Nachweis; Review in frischem Kontext, bei Anmeldung, Rechten,
+  Datenbank oder Mandanten auch der Sicherheits-Review; bei Rechten, Schema, Mandanten,
+  Anmeldung, Geld oder KI-erzeugtem Bestand die Gegenprüfung durch ein zweites Modell oder
+  einen zweiten Menschen.
+- **`docs/status.md`** neuer und aufgenommener Projekte hat einen Abschnitt **„Rückstände“**
+  — Befunde, die nicht sperren, mit Schweregrad, Termin und Quelle.
+
+### Geändert
+
+- **Der Kern ist neu geschrieben** (`core/kern.md`), nach dem Vergleich mit einem zweiten
+  Coding-Standard und der Entscheidung, welche Regeln wir aufnehmen. Was neu gilt:
+  - **Fünf Leitsätze** im Kopf: Denken vor Code · Bauen ist nicht prüfen · Beweis statt
+    Behauptung · Nie direkt auf `main` · Ein Mensch gibt frei.
+  - **Verbindlichkeitsgrade** muss / soll / kann; von einer Muss-Regel weicht nur eine ADR mit
+    Freigabe ab. Widersprüche werden gemeldet, bis zur Entscheidung gilt die strengere Auslegung.
+  - **Abnahmekriterien nummeriert (A1…An)** mit der Invariante, die erhalten bleiben muss; die
+    Abschlusszeile „Geändert“ nennt sie.
+  - **Baseline:** Vor der ersten Änderung laufen alle Prüfungen auf dem unveränderten Stand.
+  - **Diagnose vor Reparatur:** Ursache am echten Verhalten nachweisen, dann Test, dann Fix;
+    nach zwei Versuchen ohne Fortschritt den Auftrag prüfen. Charakterisierungstest vor Umbau.
+  - **Selbstprüfung je Teilschritt** mit den vier Grenzfällen leer · sehr viele Datensätze ·
+    Sonderzeichen und Umlaute · fehlende Berechtigung.
+  - **Stopp-Weiche** erweitert um Architektur, Datenbankschema, Mandanten, Anmeldung, Rechte;
+    Commit und Push auf den eigenen Zweig bleiben Routine.
+  - **Neuer Abschnitt „Arbeiten mit KI“:** getrennte Rollen (die prüfende KI ändert nichts),
+    Gegenprüfung durch ein zweites Modell oder einen zweiten Menschen bei Risiko, Datenregel
+    (was an einen KI-Dienst darf), Gedächtnis nur für die Person, keine fremden Agent-Sammlungen
+    ohne ADR, Kennzeichnung von KI-Funktionen im Produkt.
+  - **Tests:** Kreuzprobe bei Mandanten (Abweisung, nicht leere Liste); „der Test einer
+    Sicherung stellt die Gefahr her“. **Fristen** je Schweregrad und für Schwachstellen in
+    Abhängigkeiten (Sicherheits-Bumps sofort). Rückstände mit Termin in `docs/status.md`.
+  - **Geheimnisse:** in die Historie geraten → wechseln, nicht nur entfernen; Meldekultur.
+  - **Nur der Server schützt:** Berechtigungen serverseitig, objektbezogen, bei Mandanten
+    zentral am Modell.
+  - **Bezeichner Englisch als Basis;** deutsche Fachbegriffe nur über das Glossar in `CLAUDE.md`.
+  - **Git:** Der PR ist die Lieferung; ein Thema je PR, über etwa 400 Zeilen stapeln; der
+    Commit-Rumpf nennt die verworfene Alternative; Code nie im Cloud-Sync.
+  - **Definition of Done** beginnt mit „Ein Mensch gibt frei“ — Review-Pflicht 1 ab der
+    zweiten Person, eigene Durchsicht bei Ein-Personen-Repos.
+  Für bestehende Projekte ändert sich nichts an Dateien; die Regeln gelten ab der nächsten
+  Session. Wer ein Glossar braucht, legt es in `CLAUDE.md` an (Vorlage folgt).
+- **Die Reviewer-Agents prüfen die KI-Fehlermuster A–L** als Pflichtliste — fehlender
+  Import, Aufruf nach geänderter Signatur, ungefilterte Ausgabe (auch in Berichtsgeneratoren),
+  datenbankspezifisches SQL in Migrationen, erfundene Spalten und Schema-Drift, Diagnoseskripte
+  im öffentlichen Verzeichnis, Konfiguration außerhalb der Konfiguration, eingecheckte
+  Zugangsdaten, Test ohne Aussage, Fix statt Ursache, erfundener Projektbefehl, stiller
+  Fehlerkanal — dazu die vier Pflicht-Grenzfälle (leer, sehr viele Datensätze, Sonderzeichen
+  und Umlaute, fehlende Berechtigung), den Charakterisierungstest vor einem Umbau und das
+  Abhaken der Abnahmekriterien A1…An. Die drei wichtigsten Befunde stehen zuoberst, jeder
+  Schweregrad trägt seine Frist.
+- **`security-reviewer` nach OWASP Top 10 in der Fassung 2025** (neue Kategorien Lieferkette
+  und Fehlbehandlung von Ausnahmen; neuer Prüfpunkt Log-Injection) mit einer ASVS-5.0-Kurzliste
+  für Authentifizierung (V6), Sitzung (V7) und Zugriff (V8), der Kopfzeilen-Falle (keine Vertrauensentscheidung aus `Host`, `Referer`,
+  `X-Forwarded-For`) und der Sperrregel: ein bestätigter Befund bei Zugriffskontrolle,
+  Injection oder Codeausführung sperrt, gleich wie grün alles andere ist.
+- **`laravel-reviewer` und `database-reviewer`** verlangen den Mandantenfilter zentral am
+  Modell und die Kreuzprobe (A liest B → Abweisung), lehnen rohes SQL und Treiberweichen in
+  Migrationen ab, verlangen bei Datenjobs Trockenlauf, `--apply` und Mengenabgleich und bei
+  neuen Spalten mit Personenbezug den Eintrag im Datenschutzverzeichnis mit Löschweg. Neue
+  Laravel-Falle: `redirect()->back()` ohne Referer.
+- `build-fixer` läuft auf `sonnet` — mechanische Arbeit, günstigeres Modell.
+
 ## [0.9.1] — 2026-09-23
 
 ### Behoben

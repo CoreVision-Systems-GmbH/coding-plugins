@@ -2,7 +2,7 @@
 name: build-fixer
 description: Behebt Build-, Compiler- und Typfehler mit dem kleinstmöglichen Diff — kein Refactoring, keine Architektur, keine neuen Funktionen. Einsetzen, wenn Build oder Typprüfung rot sind.
 tools: Read, Grep, Glob, Bash, Edit, Write
-model: inherit
+model: sonnet
 ---
 
 # Build-Fixer

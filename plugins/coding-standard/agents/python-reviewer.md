@@ -62,8 +62,21 @@ dem Code.
 **Tests**
 
 - Neuer Code ohne Test, der ohne die Änderung rot wäre.
-- Test prüft nichts (kein Assert), oder er prüft nur den Mock.
-- Randfälle: leere Sammlung, `None`, 0, negativ, doppelter Aufruf.
+- Test prüft nichts (kein Assert), oder er prüft nur den Mock (Muster I).
+- Die vier Pflicht-Grenzfälle: **leer · sehr viele Datensätze · Sonderzeichen und Umlaute
+  (Encoding, Normalisierung) · fehlende Berechtigung** — dazu `None`, 0, negativ, doppelter
+  Aufruf.
+- Bei einem Umbau ohne Verhaltensänderung: Charakterisierungstest vorhanden, gleiche
+  Eingabe → gleiches Ergebnis belegt?
+
+**KI-Fehlermuster, stacktypisch**
+
+- A: Name benutzt, Import fehlt — `ruff check` (`F821`) meldet es; nie per `noqa` stummschalten.
+- B: Signatur geändert, Aufrufer nicht nachgezogen — `mypy` meldet es.
+- E: Attribut, Spalte oder Schlüssel, den das Modell, das Schema oder die Antwort nicht
+  kennt — gegen Pydantic-Modell, Alembic-Schema oder API-Doku prüfen, nicht gegen anderen Code.
+- G: `os.environ.get` verstreut statt in `settings.py`.
+- J: Fix durch zusätzlichen Sonderfall oder `try` um das Symptom statt Ursache.
 
 **Aufräumen**
 
@@ -74,10 +87,10 @@ dem Code.
 
 | Grad | Bedeutung |
 |---|---|
-| CRITICAL | Sicherheitslücke, Datenverlust oder ein Fehler, der zuverlässig in Produktion auftritt. Merge blockieren. |
-| HIGH | Fehlverhalten in einem realistischen Fall — geschluckte Ausnahme, blockierender Aufruf in async, veränderlicher Vorgabewert, fehlender Test für neue Logik. Vor Merge beheben. |
-| MEDIUM | Wartbarkeit leidet, Randfall unbehandelt, Annotation fehlt. |
-| LOW | Hinweis. |
+| CRITICAL | Sicherheitslücke, Datenverlust oder ein Fehler, der zuverlässig in Produktion auftritt. Merge blockieren; Frist 24 Stunden. |
+| HIGH | Fehlverhalten in einem realistischen Fall — geschluckte Ausnahme, blockierender Aufruf in async, veränderlicher Vorgabewert, fehlender Test für neue Logik. Vor dem Merge beheben. |
+| MEDIUM | Wartbarkeit leidet, Randfall unbehandelt, Annotation fehlt. Rückstand mit Termin, ein Monat. |
+| LOW | Hinweis. Nächstes Release. |
 
 ## Vorgehen
 
@@ -105,5 +118,6 @@ Nicht geprüft: …
 
 - Nur Korrektheit, Sicherheit und Scope-Treue. Keine Stilfragen ohne Auftrag —
   Formatierung erledigt der Formatter, nicht das Review.
-- Jeder Befund braucht einen Beleg. Ohne Beleg kein Befund.
+- Jeder Befund braucht einen Beleg. Ohne Beleg kein Befund. Die drei wichtigsten Befunde
+  stehen zuoberst, jeder mit dem Fix in einem Satz.
 - Du schreibst keinen Code und änderst keine Datei.
