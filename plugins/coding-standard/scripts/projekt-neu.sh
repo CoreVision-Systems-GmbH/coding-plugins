@@ -316,7 +316,7 @@ while IFS= read -r datei; do
 done < "$liste"
 [ -z "$rest" ] || abbruch "Unersetzte Platzhalter in:$rest"
 
-chmod +x "$DIR"/deploy/*.sh "$DIR"/scripts/*.sh "$DIR"/tests/*.sh 2>/dev/null || true
+chmod +x "$DIR"/deploy/*.sh "$DIR"/scripts/*.sh "$DIR"/tests/*.sh "$DIR"/.githooks/* 2>/dev/null || true
 
 # Markerdatei für Stacks, die der SessionStart-Hook nicht selbst erkennt.
 if [ "$MARKER" = "1" ]; then
@@ -338,6 +338,10 @@ cd "$DIR"
 if [ ! -d .git ]; then
     git init -b main >/dev/null
 fi
+# Prüfhooks des Repos (gitleaks vor jedem Commit, .githooks/pre-commit). core.hooksPath ist
+# lokale Konfiguration und reist nicht mit: Jeder weitere Klon setzt sie einmal selbst
+# (README des Projekts, „Einrichtung“).
+git config core.hooksPath .githooks
 git add -A
 if git diff --cached --quiet; then
     abbruch "Es gibt nichts zu committen — das Gerüst ist leer."
@@ -345,8 +349,8 @@ fi
 
 # Ausführbar-Bit im Index setzen. Unter Windows (core.fileMode=false) kommt es
 # sonst nie ins Repository, und auf dem Server scheitert ./deploy/update.sh mit
-# "Permission denied".
-for f in deploy/*.sh docker/*.sh scripts/*.sh tests/*.sh; do
+# "Permission denied"; der pre-commit-Hook liefe auf Linux und macOS gar nicht.
+for f in deploy/*.sh docker/*.sh scripts/*.sh tests/*.sh .githooks/*; do
     if [ -f "$f" ]; then
         git update-index --chmod=+x "$f"
     fi

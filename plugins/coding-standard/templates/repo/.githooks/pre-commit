@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# pre-commit — Geheimnis-Scanner gitleaks über die vorgemerkten Änderungen.
+#
+# Wirkt, sobald das Repo den Hook-Ordner kennt: `git config core.hooksPath .githooks`
+# (setzen /projekt-neu und /projekt-aufnehmen; nach einem frischen Klon einmal von Hand).
+# Die Regeln stehen in .gitleaks.toml im Wurzelverzeichnis; gitleaks findet sie selbst.
+#
+# Der Hook ist die erste Sperre, nicht die letzte: Die CI prüft dieselben Regeln über den
+# Arbeitsbaum und über jeden Commit des PR. Wer den Hook umgeht, kommt dort nicht vorbei.
+# Fehlt gitleaks, blockiert der Hook nicht — ein Neugerät ohne Scanner soll committen können;
+# die Warnung nennt den Weg zur Einrichtung.
+
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    printf 'pre-commit: gitleaks fehlt — Einrichtung: setup.sh/setup.ps1 (Grundausstattung); die CI prüft trotzdem, sobald tests.yml den Schritt „Geheimnisse (gitleaks)“ hat.\n' >&2
+    exit 0
+fi
+
+if gitleaks git --pre-commit --staged --redact --no-banner --verbose; then
+    exit 0
+fi
+
+cat >&2 <<'EOF'
+
+pre-commit: gitleaks hat den Commit gestoppt — Befund siehe oben (Datei und Zeile).
+  * Echtes Geheimnis: aus der Änderung entfernen UND wechseln (rotieren) — ein Wert, der
+    einmal in Arbeitsbaum, Log oder Chat stand, gilt als verbrannt.
+  * Fehlalarm: in .gitleaks.toml unter [[allowlists]] erlauben — Pfad oder Muster, so eng
+    wie möglich, mit dem Grund als Kommentar.
+  * --no-verify ist keine Abkürzung: Der Git-Guard blockt es, und die CI prüft dieselben
+    Regeln noch einmal.
+EOF
+exit 1

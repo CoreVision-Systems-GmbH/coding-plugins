@@ -135,6 +135,89 @@ check allow "$V" 'git push origin main'                       '48 Marker: Push a
 check allow "$V" 'git add -A && git commit -m \"backup\" && git push' '49 Marker: Backup-Kette'
 
 echo
+echo "== Seit 1.0.0 blockiert: pauschales Stagen, --no-verify, Hook-Umbiegen, Datenbanklöscher =="
+check block "$F" 'git add .'                                  '50 git add .'
+check block "$F" 'git add -A'                                 '51 git add -A'
+check block "$F" 'git add --all'                              '52 git add --all'
+check block "$F" 'git add -u'                                 '53 git add -u'
+check block "$F" 'git add -Av'                                '54 git add -Av (gebündelt)'
+check block "$F" 'git add :/'                                 '55 git add :/ (ganzes Repo)'
+check block "$F" 'git add . && git commit -m \"wip\"'         '56 git add . in einer Kette'
+check block "$F" 'git commit --no-verify -m \"x\"'            '57 git commit --no-verify'
+check block "$F" 'git commit -n -m \"x\"'                     '58 git commit -n'
+check block "$F" 'git commit -am \"x\" --no-verify'           '59 --no-verify hinter -am'
+check block "$F" 'git push --no-verify origin feat/beispiel'  '60 git push --no-verify'
+check block "$F" 'git config core.hooksPath /tmp/leer'        '61 core.hooksPath umbiegen'
+check block "$F" 'git config --unset core.hooksPath'          '62 core.hooksPath entfernen'
+check block "$F" 'git config --global core.hooksPath /dev/null' '63 core.hooksPath global umbiegen'
+check block "$F" 'git -c core.hooksPath=/tmp/leer commit -m \"x\"' '64 -c core.hooksPath für einen Aufruf'
+check block "$F" 'php artisan migrate:fresh'                  '65 artisan migrate:fresh'
+check block "$F" 'php artisan migrate:fresh --seed --force'   '66 artisan migrate:fresh mit Flags'
+check block "$F" 'php artisan migrate:refresh'                '67 artisan migrate:refresh'
+check block "$F" 'php artisan db:wipe --force'                '68 artisan db:wipe'
+check block "$F" 'composer install && php artisan migrate:reset' '69 migrate:reset in einer Kette'
+check block "$F" 'alembic downgrade base'                     '70 alembic downgrade base'
+check block "$F" 'wp db reset --yes'                          '71 wp db reset'
+check block "$V" 'git commit --no-verify -m \"backup\"'       '72 Marker: --no-verify bleibt geblockt'
+check block "$V" 'php artisan db:wipe'                        '73 Marker: db:wipe bleibt geblockt'
+
+echo
+echo "== Erlaubt: gezieltes Stagen, Hooks des Repos, gewöhnliche Migrationen =="
+check allow "$F" 'git add datei.txt'                          '74 git add <datei>'
+check allow "$F" 'git add src/ tests/'                        '75 git add mit Ordnern'
+check allow "$F" 'git add -p'                                 '76 git add -p (interaktiv, gezielt)'
+check allow "$F" 'git add -N neu.txt'                         '77 git add -N <datei>'
+check allow "$F" 'git commit -m \"x\"'                        '78 git commit ohne -n'
+check allow "$F" 'git commit --amend --no-edit'               '79 git commit --amend'
+check allow "$F" 'git config core.hooksPath .githooks'        '80 core.hooksPath auf den Hook-Ordner des Repos'
+check allow "$F" 'git config user.name \"Test\"'              '81 anderer git config'
+check allow "$F" 'git -c user.name=Test commit -m \"x\"'      '82 -c ohne hooksPath'
+check allow "$F" 'php artisan migrate'                        '83 artisan migrate'
+check allow "$F" 'php artisan migrate:status'                 '84 artisan migrate:status'
+check allow "$F" 'php artisan migrate --force'                '85 artisan migrate --force (Rollout)'
+check allow "$F" 'alembic upgrade head'                       '86 alembic upgrade head'
+check allow "$F" 'alembic downgrade -1'                       '87 alembic downgrade -1'
+check allow "$F" 'wp db export sicherung.sql'                 '88 wp db export'
+check allow "$F" 'wp cache flush'                             '89 wp cache flush'
+
+echo
+echo "== Befunde aus dem Review: Hüllen, Optionen, Schreibweisen =="
+check block "$F" 'git config set core.hooksPath /tmp/leer'    '90 git config set (git ≥ 2.46)'
+check block "$F" 'git config unset core.hooksPath'            '91 git config unset'
+check block "$F" 'git config -f .git/config core.hooksPath /tmp/leer' '92 git config -f <datei>'
+check block "$F" 'git config --file .git/config --unset core.hooksPath' '93 --file mit --unset'
+check block "$F" 'git config core.hookspath /tmp/leer'        '94 Schlüssel klein geschrieben'
+check block "$F" 'git -c CORE.HOOKSPATH=/tmp/leer commit -m \"x\"' '95 -c mit großem Schlüssel'
+check block "$F" 'git -ccore.hooksPath=/tmp/leer commit -m \"x\"' '96 -ckey=wert ohne Leerzeichen'
+check block "$F" 'git add ./*'                                '97 git add ./*'
+check block "$F" 'git add :/*'                                '98 git add :/*'
+check block "$F" 'git add . & git status'                     '99 git add . vor einem &'
+check block "$F" 'docker compose exec -T app php artisan migrate:fresh' '100 artisan hinter docker compose exec'
+check block "$F" 'php -d memory_limit=-1 artisan migrate:fresh' '101 artisan hinter php -d'
+check block "$F" './artisan db:wipe'                          '102 ./artisan'
+check block "$F" 'uv run alembic downgrade base'              '103 alembic hinter uv run'
+check block "$F" 'alembic -c alembic.ini downgrade base'      '104 alembic -c <datei>'
+check block "$F" 'wp --path=/var/www/html db reset --yes'     '105 wp --path=… db reset'
+check block "$F" 'wp --path /var/www/html db drop'            '106 wp --path <pfad> db drop'
+check block "$F" 'git commit -m \"x\" -n'                     '107 -n hinter der Nachricht'
+
+echo
+echo "== Keine Fehlalarme: Anführungszeichen, Lesen, Heredoc =="
+check allow "$F" 'git commit -m \"docs: --no-verify erklärt\"' '108 --no-verify im Commit-Text'
+check allow "$F" 'git commit -m \"fix: Option -n beschrieben\"' '109 -n im Commit-Text'
+check allow "$F" "git commit -m 'chore: git add . wird geblockt'" '110 git add . im Commit-Text'
+check allow "$F" 'git commit -m \"$(cat <<'"'"'EOF'"'"'\nfeat: Guard\n\ngit add . und --no-verify sind geblockt.\nEOF\n)\"' '111 Heredoc-Rumpf ist kein Befehl'
+check allow "$F" 'git config core.hooksPath'                  '112 core.hooksPath lesen'
+check allow "$F" 'git config --get core.hooksPath'            '113 core.hooksPath mit --get lesen'
+check allow "$F" 'git config get core.hooksPath'              '114 git config get'
+check allow "$F" 'git config --list'                          '115 git config --list'
+check allow "$F" 'git config core.hooksPath .githooks/'       '116 .githooks/ mit Schrägstrich'
+check allow "$F" 'git config core.hooksPath ./.githooks'      '117 ./.githooks'
+check allow "$F" 'git config --local core.hooksPath .githooks' '118 --local .githooks'
+check allow "$F" 'git commit -m \"x\" 2>&1'                   '119 2>&1 ist kein Trenner-Unfall'
+check allow "$F" 'grep -r \"alembic downgrade base\" docs/'   '120 Suchmuster in Anführungszeichen'
+
+echo
 printf 'Fälle: %s   Fehler: %s\n' "$TOTAL" "$FAILED"
 [ "$FAILED" -eq 0 ] || exit 1
 echo "Alle Fälle grün."

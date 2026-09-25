@@ -17,12 +17,30 @@
 
 name: {{NAME}}
 
+# Härtung für jeden Dienst: keine Rechteausweitung, keine Capabilities, Logs
+# rotiert (5 × 20 MB je Container). Das Wurzeldateisystem ist schreibgeschützt;
+# der Dienst schreibt nur nach /data (Volume) und /tmp (tmpfs).
+x-haertung: &haertung
+    security_opt:
+        - no-new-privileges:true
+    cap_drop:
+        - ALL
+    logging:
+        driver: json-file
+        options:
+            max-size: '20m'
+            max-file: '5'
+
 services:
     app:
+        <<: *haertung
         image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
         container_name: {{NAME}}-app
         restart: unless-stopped
         env_file: .env
+        read_only: true
+        tmpfs:
+            - /tmp
         volumes:
             - app_data:/data
         networks:
@@ -36,9 +54,12 @@ services:
             start_period: 20s
 
     # Kommt eine echte Datenbank dazu, gehört sie hierher — ausschließlich im
-    # internen Netz, mit Healthcheck und `depends_on: condition: service_healthy`
-    # beim app-Dienst. Bis dahin liegen die Daten als Datei im Volume unter
-    # DATA_DIR, und deploy/backup.sh sichert genau dieses Volume.
+    # internen Netz, mit Healthcheck, `depends_on: condition: service_healthy`
+    # beim app-Dienst, Pflichtvariablen mit `:?` und derselben Härtung (das
+    # Postgres-Abbild braucht cap_add CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID
+    # und tmpfs /run/postgresql; Vorbild: templates/laravel). Bis dahin liegen
+    # die Daten als Datei im Volume unter DATA_DIR, und deploy/backup.sh sichert
+    # genau dieses Volume.
 
 volumes:
     app_data:

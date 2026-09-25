@@ -1,0 +1,122 @@
+name: nightly
+
+# Nächtliche Prüfungen, die zu lang oder zu teuer für jeden PR sind (Kern, „Bauen ist nicht
+# prüfen“): der Mutationstest — Tests sind erst wirksam, wenn sie Änderungen am Code bemerken —
+# und die Suite gegen die Betriebs-Datenbank: Der Standardlauf nutzt SQLite im Speicher,
+# PostgreSQL-Eigenheiten (Volltext, jsonb, Sortierung mit Umlauten) sieht erst dieser Lauf.
+#
+# Befunde sind WARN mit Termin, kein Tor (`continue-on-error`): Sie stehen in `docs/status.md`
+# unter „Rückstände“ und werden dort abgearbeitet. Von Hand: Actions → nightly → Run workflow.
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # 02:30 UTC = 04:30 Wien im Sommer, 03:30 im Winter
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: Mutationstest (Pest --mutate, Schwelle 60)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # pcov statt none: Mutationen brauchen Abdeckungsdaten (--covered-only).
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.4'
+          extensions: intl, pcov
+          tools: composer:v2
+          coverage: pcov
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Setup Application
+        run: composer ci:setup
+
+      # Nur abgedeckter Code wird mutiert (--covered-only); Ziel sind Actions, Services und
+      # Hilfsklassen — in den Tests per mutates() eingrenzen, nicht Controller und Blade.
+      # Ohne ein einziges mutates() gibt es null Mutationen; das ist dann kein Rot, sondern
+      # der Hinweis, das erste zu schreiben. Ein überlebender Mutant heißt: Die Änderung
+      # hätte kein Test bemerkt.
+      - name: Pest mit Mutationen
+        run: vendor/bin/pest --mutate --covered-only --min=60 --parallel --ignore-min-score-on-zero-mutations
+
+  betriebsdatenbank:
+    name: Wanderungen und Suite gegen PostgreSQL 18
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: app
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_INITDB_ARGS: '--locale-provider=icu --icu-locale=de-AT --encoding=UTF8'
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: app
+      DB_USERNAME: app
+      DB_PASSWORD: app
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.4'
+          extensions: intl, pdo_pgsql
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Setup Application
+        run: composer ci:setup
+
+      # phpunit.xml setzt die Tests auf SQLite; ohne force="true" gewinnt die Umgebung dieses
+      # Auftrags schon allein, mit force (Regel aus tests.md: keine .env eines Entwicklers
+      # darf die Suite auf eine echte Datenbank lenken) nicht — deshalb wird die Festlegung
+      # für diesen einen Lauf bewusst umgeschrieben.
+      - name: Suite auf PostgreSQL umstellen
+        run: |
+          set -euo pipefail
+          sed -i 's/name="DB_CONNECTION" value="sqlite"/name="DB_CONNECTION" value="pgsql"/; s/name="DB_DATABASE" value=":memory:"/name="DB_DATABASE" value="app"/' phpunit.xml
+          grep -n 'DB_CONNECTION\|DB_DATABASE' phpunit.xml
+
+      # Erst die Wanderungen allein — ein Fehler hier ist ein Fehler im Rollout.
+      - name: Wanderungen gegen PostgreSQL
+        run: php artisan migrate --force
+
+      - name: Suite gegen PostgreSQL
+        run: php artisan test

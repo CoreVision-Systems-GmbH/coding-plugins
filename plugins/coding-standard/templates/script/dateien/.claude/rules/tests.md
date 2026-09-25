@@ -19,3 +19,6 @@ paths: ['tests/**']
   Fehler und endet mit einem Ausgangswert ungleich 0. Bats lohnt erst, wenn die Suite wächst.
 - Nichts außerhalb von `$TMPDIR` anlegen; jeder Test räumt hinter sich auf (`trap ... EXIT`).
 - Keine echten Zugangsdaten, keine Netzaufrufe, keine Abhängigkeit vom Zustand des Rechners.
+- **Regressionsliste:** Jeder behobene Fehler wird ein benannter Dauerprüfpunkt — der Testname
+  nennt Vorfall und Fassung (`test_…_vorfall_2026_09_25_v1_4_2`).
+- **Grenzwerte selbst testen:** Bei `>= 18` prüft der Test 17, 18 und 19 — nicht 20.

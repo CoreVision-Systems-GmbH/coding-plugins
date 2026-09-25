@@ -24,6 +24,15 @@ neu="${1#v}"
 
 [ -f .env ] || abbruch "Die .env fehlt."
 
+# Sichere Konfiguration der Instanz: production und Debug aus — Debug-Ausgabe liefert
+# Stacktraces samt Geheimnissen an jeden Besucher. Eine .env mit local/true gehört auf
+# die Dev-Instanz (deploy/dev.sh), nie hierher.
+# Der letzte Eintrag gilt (so lesen es compose und dotenv), die Form „export KEY=“ ebenso.
+app_env="$(sed -n 's/^\(export \)\{0,1\}APP_ENV=//p' .env | tail -n 1 | tr -d '\r"')"
+app_debug="$(sed -n 's/^\(export \)\{0,1\}APP_DEBUG=//p' .env | tail -n 1 | tr -d '\r"')"
+[ "$app_env" = production ] || abbruch "APP_ENV=${app_env:-<leer>} — auf diesem Server muss production stehen."
+case "$app_debug" in false|0|'') ;; *) abbruch "APP_DEBUG=$app_debug — auf diesem Server muss false stehen." ;; esac
+
 alt="$(sed -n 's/^APP_VERSION=//p' .env | head -n 1 | tr -d '\r')"
 [ -n "$alt" ] || abbruch "In der .env steht kein APP_VERSION — Rückweg wäre unbekannt."
 
@@ -81,6 +90,11 @@ if [ "$laeuft" != "$neu" ]; then
     echo "Es läuft Fassung '${laeuft}', erwartet war '${neu}'." >&2
     rueckweg
 fi
+
+# Rauchtest: die Routen aus deploy/smoke.txt mit Status, Zeitbudget und Pflichtinhalt.
+# Rot heißt: Die neue Fassung läuft, aber nicht richtig — Rückweg wie bei jedem Fehler.
+meldung "Rauchtest (deploy/smoke.txt)"
+deploy/smoke.sh || rueckweg
 
 meldung "Fertig — es läuft Fassung ${laeuft}"
 if [ -n "$sicherung" ]; then

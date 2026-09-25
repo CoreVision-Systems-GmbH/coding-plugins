@@ -18,14 +18,16 @@
 #   --github-login   meldet gh im Browser an und setzt den Git-Credential-Helper auf gh
 #
 # Was es tut — jeder Schritt wird übersprungen, wenn er schon erledigt ist:
-#   Grundausstattung: git, GitHub CLI, Claude Code, KeePassXC, die Ordner ~/Code und ~/Tresor,
-#   Marketplace „corevision“ und Plugin coding-standard mit automatischer Aktualisierung.
+#   Grundausstattung: git, GitHub CLI, Claude Code, gitleaks (Geheimnis-Scanner für den
+#   pre-commit-Hook der Projekte), KeePassXC, die Ordner ~/Code und ~/Tresor, Marketplace
+#   „corevision“ und Plugin coding-standard mit automatischer Aktualisierung.
 #   Auf dem Arbeitsplatz dazu: Tailscale, VS Code mit Remote-SSH und ein SSH-Schlüssel — damit
 #   arbeitest du auf dem Dev-Server. Auf dem Dev-Server selbst (setup-server.sh) entfallen sie.
 #   Je Stack: PHP 8.4 mit intl, Composer, Laravel-Installer, Node 24, Python 3.12, pipx mit ruff
 #   und pytest, shellcheck, PowerShell mit PSScriptAnalyzer; Docker nur mit --stack docker.
 #   Quellen: Homebrew auf macOS; apt auf Debian/Ubuntu mit den offiziellen Repos von
-#   GitHub CLI, NodeSource, Docker und Microsoft. Andere Linux-Systeme: von Hand.
+#   GitHub CLI, NodeSource, Docker und Microsoft; gitleaks unter Linux als Binary aus dem
+#   GitHub-Release mit Prüfsumme (kein apt-Paket). Andere Linux-Systeme: von Hand.
 #
 # Was es NICHT tut: Anmeldungen (claude, Docker; gh nur mit --github-login), Git-Identität
 # setzen, die Tresor-Datei beschaffen, Rechte auf Firmen-Repos vergeben — das steht am Ende
@@ -45,6 +47,13 @@ set -euo pipefail
 MARKETPLACE="CoreVision-Systems-GmbH/coding-plugins"
 MARKETPLACE_NAME="corevision"
 PLUGIN="coding-standard@corevision"
+# Feste Fassung, dieselbe wie im CI-Schritt „Geheimnisse (gitleaks)“ der Projektvorlagen:
+# Hook und CI sollen dieselben Regeln gleich auslegen. Beim Anheben beide Stellen nachziehen.
+GITLEAKS_FASSUNG="8.30.1"
+# Prüfsummen der Linux-Binaries aus gitleaks_8.30.1_checksums.txt — hier festgenagelt, nicht
+# aus dem Download: Wer das Release tauscht, tauscht auch dessen Prüfsummendatei mit.
+GITLEAKS_SHA256_X64="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+GITLEAKS_SHA256_ARM64="e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080"
 STACKS="laravel fastapi script astro wordpress"
 # Reihenfolge zählt: PHP vor Composer vor dem Laravel-Installer, Python vor pipx.
 REIHENFOLGE="php composer laravel node docker python pipx shellcheck powershell"
@@ -155,6 +164,8 @@ if [ -f "${SERVER_KONF:-/etc/corevision/server.env}" ]; then arbeitsplatz=0; fi
 
 quelle() {
     case "$system:$1" in
+        mac:gitleaks)     echo "brew install gitleaks" ;;
+        linux:gitleaks)   echo "github.com/gitleaks/gitleaks, Release $GITLEAKS_FASSUNG: Binary mit Prüfsumme nach ~/.local/bin (kein apt-Paket)" ;;
         mac:php)          echo "brew install php@8.4 (mit intl), brew link --force php@8.4" ;;
         mac:composer)     echo "brew install composer" ;;
         *:laravel)        echo "composer global require laravel/installer" ;;
@@ -178,7 +189,7 @@ quelle() {
 }
 
 if [ $nur_liste -eq 1 ]; then
-    printf 'Grundausstattung: git gh claude keepassxc ordner plugin%s\n' "$([ $arbeitsplatz -eq 1 ] && echo ' tailscale vscode remotessh sshkey')"
+    printf 'Grundausstattung: git gh claude gitleaks keepassxc ordner plugin%s\n' "$([ $arbeitsplatz -eq 1 ] && echo ' tailscale vscode remotessh sshkey')"
     for b in $bausteine; do printf '%-11s %s\n' "$b" "$(quelle "$b")"; done
     exit 0
 fi
@@ -232,6 +243,30 @@ composer_installieren() {
     mkdir -p "$HOME/.local/bin"
     php "$tmp/installer.php" --quiet --install-dir="$HOME/.local/bin" --filename=composer
     rm -rf "$tmp"
+}
+
+gitleaks_linux() {
+    # Kein apt-Paket: Debian und Ubuntu führen gitleaks nicht. Deshalb das Binary aus dem
+    # GitHub-Release in fester Fassung, Prüfsumme festgenagelt (GITLEAKS_SHA256_*), nach
+    # ~/.local/bin — ohne sudo und je Konto, denn Entwickler auf dem Dev-Server haben kein sudo.
+    local arch datei url tmp soll
+    case "$(uname -m)" in
+        x86_64)        arch=x64;   soll="$GITLEAKS_SHA256_X64" ;;
+        aarch64|arm64) arch=arm64; soll="$GITLEAKS_SHA256_ARM64" ;;
+        *) fehler "gitleaks: kein Binary für $(uname -m) — siehe EINRICHTUNG.md"; return 1 ;;
+    esac
+    datei="gitleaks_${GITLEAKS_FASSUNG}_linux_${arch}.tar.gz"
+    url="https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_FASSUNG"
+    tmp="$(mktemp -d)"
+    curl -fsSL "$url/$datei" -o "$tmp/$datei"
+    if ! echo "$soll  $tmp/$datei" | sha256sum -c --quiet - >/dev/null 2>&1; then
+        fehler "gitleaks: Prüfsumme stimmt nicht"; rm -rf "$tmp"; return 1
+    fi
+    mkdir -p "$HOME/.local/bin"
+    tar -xzf "$tmp/$datei" -C "$tmp" gitleaks
+    install -m 755 "$tmp/gitleaks" "$HOME/.local/bin/gitleaks"
+    rm -rf "$tmp"
+    profil_pfad "$HOME/.local/bin"
 }
 
 docker_linux() {
@@ -306,6 +341,8 @@ installiere() {
         mac:keepassxc)    brew install --cask keepassxc ;;
         mac:tailscale)    brew install --cask tailscale-app && handgriff "Tailscale öffnen und anmelden (Menüleiste)" ;;
         mac:vscode)       brew install --cask visual-studio-code ;;
+        mac:gitleaks)     brew install gitleaks ;;
+        linux:gitleaks)   gitleaks_linux ;;
         *:remotessh)      code --install-extension ms-vscode-remote.remote-ssh ;;
         *:sshkey)         schluessel_erzeugen ;;
         mac:php)          brew install php@8.4 && brew link --force --overwrite php@8.4 ;;
@@ -444,6 +481,9 @@ pruefen() {
     for b in git gh claude; do
         if vorhanden "$b"; then ok "$b — $(fassung "$b")"; else fehlt "$b"; fi
     done
+    # gitleaks gehört überallhin, wo committet wird — auch auf den Dev-Server: Der
+    # pre-commit-Hook der Projekte ruft ihn auf und warnt nur, wenn er fehlt.
+    if vorhanden gitleaks; then ok "gitleaks $(gitleaks version 2>/dev/null | nummer)"; else fehlt "gitleaks (Geheimnis-Scanner für den pre-commit-Hook)"; fi
     # KeePassXC gehört auf den Arbeitsplatz: Auf dem Dev-Server liegt kein Tresor.
     if [ $arbeitsplatz -eq 1 ]; then if ist_da keepassxc; then ok "KeePassXC"; else fehlt "KeePassXC"; fi; fi
     if [ $arbeitsplatz -eq 1 ] && [ $wsl -eq 0 ]; then
@@ -519,6 +559,7 @@ if [ $nur_pruefen -eq 0 ]; then
         export PATH="$HOME/.local/bin:$PATH"
         vorhanden claude || befund "claude nach der Installation nicht im Pfad — neue Shell öffnen und Skript erneut starten"
     fi
+    baustein gitleaks "gitleaks (Geheimnis-Scanner)"
     [ $arbeitsplatz -eq 0 ] || baustein keepassxc "KeePassXC"
     if [ $arbeitsplatz -eq 1 ]; then
         # Unter WSL verbinden VS Code, Tailscale und der SSH-Schlüssel von Windows aus (setup.ps1).

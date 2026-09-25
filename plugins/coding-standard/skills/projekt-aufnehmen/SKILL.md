@@ -18,7 +18,7 @@ und berichtet die anderen zwei:
 | Stufe | Was | Wer |
 |---|---|---|
 | 0 Erklärung | `.claude/settings.json` (installiert das Plugin für jeden, der das Repo öffnet); bei Stacks ohne Markerdatei `.coding-standard` | Skript |
-| 1 Kontext | die gemeinsamen Dateien aus `templates/repo`: `CLAUDE.md` mit den echten Befehlen des Repos, `CHANGES.md`, `docs/status.md`, ADR „Aufnahme in den Firmenstandard“ mit den Lücken, PR-Vorlage, CODEOWNERS, CI-Durchsicht, Dependabot, `.claude/rules` des Stacks | Skript, du prüfst nach |
+| 1 Kontext | die gemeinsamen Dateien aus `templates/repo`: `CLAUDE.md` mit den echten Befehlen des Repos, `CHANGES.md`, `docs/status.md`, ADR „Aufnahme in den Firmenstandard“ mit den Lücken, PR-Vorlage, CODEOWNERS, CI-Durchsicht, Dependabot, pre-commit-Hook mit gitleaks samt `.gitleaks.toml` (setzt `core.hooksPath`), `.claude/rules` des Stacks | Skript, du prüfst nach |
 | 2 Lieferweg | Dockerfile, Compose, `deploy/`, `release.yml` | eigener PR, später |
 | 3 Betriebsvertrag | Fassung im Produkt, Health, TrustProxies, Prüfbefehle, Qualitätsgates — je Stack aus dem Overlay | eigene PRs, wenn der Bereich ohnehin angefasst wird |
 
@@ -110,6 +110,16 @@ berührt): Vorlage aus `${CLAUDE_PLUGIN_ROOT}/templates/<stack>/dateien/`, Regel
 Overlay, Abschnitt „Betriebsvertrag“. Reihenfolge, wenn nichts dagegen spricht: Fassung im
 Produkt → Health → `release.yml` und `deploy/` → Backup → Qualitätsgates. Nichts davon muss am
 Stück geschehen — aber alles, was nicht geschieht, steht in der ADR mit Grund.
+
+### Statik im Bestand: Baseline mit Datum und Abbauplan
+
+`/projekt-neu` verbietet Baselines — im Bestand sind sie der Weg, die Stufe sofort scharf zu
+schalten, ohne den Merge zu blockieren: Larastan/PHPStan auf der Stufe des Standards (Laravel 8,
+WordPress 6) mit `phpstan-baseline.neon`, im Kopf der Baseline Datum und Zahl der Befunde;
+`docs/status.md` führt unter „Rückstände“ den Abbauplan mit Termin. Regel: Jede Datei, die ein PR
+anfasst, verlässt die Baseline — der PR nimmt ihre Zeilen heraus und behebt die Befunde. Neuer
+Code läuft nie gegen die Baseline. Dasselbe für `phpmd.xml`/ruff-Kennzahlen: die Warnphase bis
+Ende 2026 gilt auch hier.
 
 ## 7. Abschluss
 

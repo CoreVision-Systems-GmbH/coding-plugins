@@ -1,0 +1,41 @@
+name: monatlich
+
+# Rector --dry-run am ersten Tag des Monats: zeigt, was sich im Code modernisieren ließe
+# (PHP-Fassung, tote Zeilen, Typangaben), und wendet nichts an. Der Auftrag ist gelb, nie rot:
+# Was er meldet, wird zum PR, wenn es den Code klarer macht — sonst bleibt es liegen.
+# Von Hand: Actions → monatlich → Run workflow.
+
+on:
+  schedule:
+    - cron: '0 3 1 * *'   # 1. des Monats, 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  modernisierung:
+    name: Rector (Probelauf, zeigt nur an)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.4'
+          extensions: intl
+          tools: composer:v2
+          coverage: none
+
+      # Nur der Autoloader — Rector liest, baut nichts, braucht keine .env.
+      - name: Abhängigkeiten installieren
+        run: composer install --no-interaction --no-progress
+
+      - name: Rector --dry-run
+        run: vendor/bin/rector --dry-run --no-progress-bar

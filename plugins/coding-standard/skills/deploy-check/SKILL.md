@@ -95,6 +95,16 @@ scheitert das Ziehen des Images oder ein Dump.
 Läuft die Instanz jetzt schon nicht sauber, wird das Update nichts heilen → No-Go, erst
 den laufenden Fehler klären.
 
+## (g) Härtung der laufenden Container
+
+- Im Instanzverzeichnis, nur lesend:
+  `docker inspect --format '{{.Name}} ro={{.HostConfig.ReadonlyRootfs}} caps={{.HostConfig.CapDrop}} sec={{.HostConfig.SecurityOpt}} log={{.HostConfig.LogConfig.Config}}' $(docker compose ps -q)`
+- Soll je Container: `ro=true`, `caps=[ALL]`, `sec=[no-new-privileges:true]`, Log-Rotation
+  (`max-size`, `max-file`) — so, wie es die `compose.yaml` des Ziel-Tags vorgibt.
+- Eine Abweichung ist kein No-Go, aber ein Befund: Die Härtung kommt mit dem nächsten
+  `docker compose up -d` aus dem Repo. Steht sie dort nicht (älteres Projekt), fehlt sie auch
+  nach dem Update — dann `compose.yaml` aus `templates/<stack>/dateien` nachziehen.
+
 ## Ausgabe
 
 ```text
@@ -108,6 +118,7 @@ Instanz:  <kunde>/<produkt>   Host: <host>   Laufend: v<alt>   Ziel: v<neu>
 | d | Kein Drift auf dem Server          | Go/No-Go | …      |
 | e | Sicherung < 24 h, Platz > 20 %     | Go/No-Go | …      |
 | f | Gesundheit und laufende Version    | Go/No-Go | …      |
+| g | Härtung der Container              | Go/Befund | …     |
 
 Empfehlung: <Update freigegeben | Update NICHT fahren, weil …>
 Ungeprüft:  <was nicht festgestellt werden konnte>

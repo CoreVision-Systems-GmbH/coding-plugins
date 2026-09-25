@@ -40,20 +40,15 @@ export ASTRO_TELEMETRY_DISABLED=1
 meldung "Abhängigkeiten installieren (npm install — erzeugt package-lock.json)"
 npm install --no-audit --no-fund
 
-meldung "npm run check"
+meldung "npm run check (Typen, Bau, Tests)"
 npm run check
-
-meldung "npm run build"
-npm run build
-
-meldung "npm test"
-npm test
 
 # Die Platzhalter-Domain aus der Vorlage bleibt bewusst stehen: Welche Domain
 # die Site bekommt, weiß das Skript nicht. Ohne die echte zeigen Canonicals,
 # Sitemap und robots.txt ins Leere.
 printf '%s\n' \
     '`site` in astro.config.mjs auf die echte Domain setzen (Canonical, Sitemap) — dieselbe Adresse in public/robots.txt.' \
+    'Impressum und Datenschutzerklärung befüllen (src/pages/impressum.astro, datenschutz.astro) — der Rauchtest verlangt UID und Verantwortlichen; bis dahin bleibt er rot.' \
     >> "$DIR/.projekt-neu-nacharbeit"
 
 meldung "Gerüst steht und ist grün."

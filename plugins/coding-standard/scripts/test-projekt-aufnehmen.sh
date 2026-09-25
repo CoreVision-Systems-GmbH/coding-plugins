@@ -123,11 +123,27 @@ enthaelt_muster "Stufe 1: CLAUDE.md fehlt" 'fehlt +CLAUDE\.md'
 enthaelt_muster "Stufe 1: README.md vorhanden" 'ok +README\.md'
 enthaelt_muster "Stufe 1: CHANGES.md ohne „Unveröffentlicht“" 'fehlt +CHANGES\.md hat einen Abschnitt'
 enthaelt_muster "Stufe 2: Dockerfile fehlt, Vorlage genannt" 'fehlt +Dockerfile +← templates/laravel/dateien/Dockerfile'
+enthaelt_muster "Stufe 2: Rauchtest fehlt, Vorlage genannt" 'fehlt +deploy/smoke\.txt +← templates/laravel/dateien/deploy/smoke\.txt'
+enthaelt_muster "Stufe 2: Konfigurationsprüfung fehlt, Vorlage genannt" 'fehlt +scripts/konfig-pruefen\.sh +← templates/laravel/dateien/scripts/konfig-pruefen\.sh'
 enthaelt_muster "Stufe 2: tests.yml heißt ci" 'ok +tests\.yml: Auftrag heißt'
+enthaelt_muster "Stufe 2: Diff-Abdeckung fehlt" 'fehlt +tests\.yml: Schritt „Diff-Abdeckung“'
+enthaelt_muster "Stufe 2: nightly.yml fehlt, Vorlage genannt" 'fehlt +nightly\.yml: .*← templates/laravel/dateien/\.github/workflows/nightly\.yml'
+
+enthaelt_muster "Stufe 2: PR-Text-Schritt fehlt" 'fehlt +tests\.yml: Schritt „PR-Text prüfen“'
 enthaelt_muster "Stufe 3: Fassung im Produkt fehlt" 'fehlt +Fassung im Produkt'
 enthaelt_muster "Stufe 3: TrustProxies fehlt" 'fehlt +TrustProxies'
+enthaelt_muster "Stufe 3: Härtung fehlt" 'fehlt +compose\.yaml: Härtung'
 enthaelt_muster "Stufe 3: Script lint vorhanden" 'ok +composer\.json: Script „lint“'
 enthaelt_muster "Stufe 3: Script types:check fehlt" 'fehlt +composer\.json: Script „types:check“'
+enthaelt_muster "Stufe 3: pint.json fehlt, Vorlage genannt" 'fehlt +pint\.json: .*← templates/laravel/dateien/pint\.json'
+enthaelt_muster "Stufe 3: Kennzahlen fehlen, Vorlage genannt" 'fehlt +Kennzahlen je Funktion .*← templates/laravel/dateien/phpmd\.xml'
+# Fall „vorhanden“: mit beiden Dateien aus der Vorlage meldet die Stufe ok — und ändert nichts.
+cp "$root/templates/laravel/dateien/phpmd.xml" "$root/templates/laravel/dateien/scripts/komplexitaet-pruefen.sh" "$a/" 2>/dev/null || true
+mkdir -p "$a/scripts" && mv "$a/komplexitaet-pruefen.sh" "$a/scripts/"
+lauf 0 "Bericht mit Kennzahlen-Dateien endet mit 0" --dir "$a"
+enthaelt_muster "Stufe 3: Kennzahlen vorhanden" 'ok +Kennzahlen je Funktion'
+rm -f "$a/phpmd.xml" "$a/scripts/komplexitaet-pruefen.sh"
+enthaelt_muster "Stufe 3: Script check fehlt" 'fehlt +composer\.json: Script „check“'
 enthaelt "Zusammenfassung mit Zählern" "Stufe 3 Betriebsvertrag:"
 [ -z "$(git -C "$a" status --porcelain)" ] && ok "Bericht hat nichts geändert" || nichtok "Bericht hat nichts geändert"
 
@@ -140,7 +156,8 @@ rm "$a/schmutzig.txt"
 
 lauf 0 "--apply legt Stufe 0 und 1 an" --dir "$a" --apply --customer "Musterkunde auf host1"
 for datei in .claude/settings.json CLAUDE.md LICENSE version.txt .editorconfig .gitattributes \
-             .github/CODEOWNERS .github/pull_request_template.md \
+             .githooks/pre-commit .gitleaks.toml \
+             .github/CODEOWNERS .github/pull_request_template.md scripts/pr-text-pruefen.sh \
              .github/workflows/claude-review.yml .github/dependabot.yml \
              docs/status.md docs/decisions/0000-vorlage.md \
              docs/decisions/0001-aufnahme-firmenstandard.md \
@@ -155,6 +172,8 @@ done
     && nichtok "laravel braucht keine Markerdatei" || ok "laravel braucht keine Markerdatei"
 git -C "$a" diff --quiet \
     && ok "keine bestehende Datei geändert" || nichtok "keine bestehende Datei geändert"
+bash "$a/scripts/pr-text-pruefen.sh" "$a/.github/pull_request_template.md" >/dev/null 2>&1 \
+    && nichtok "PR-Text-Prüfer erkennt die leere Vorlage" || ok "PR-Text-Prüfer erkennt die leere Vorlage"
 grep -q '^1.2.0$' "$a/version.txt" \
     && ok "version.txt aus dem Tag v1.2.0" || nichtok "version.txt aus dem Tag v1.2.0"
 grep -q 'composer ci:setup' "$a/CLAUDE.md" \
@@ -194,6 +213,8 @@ enthaelt "zweiter Lauf legt nichts an" "0 Datei(en) angelegt"
     && ok "zweiter Lauf ändert nichts" || nichtok "zweiter Lauf ändert nichts"
 lauf 0 "Bericht nach der Aufnahme" --dir "$a"
 enthaelt "jetzt erklärt" "Erklärt:  ja — .claude/settings.json"
+sed -n '/"deny"/,/\]/p' "$a/.claude/settings.json" | grep -q '"Read(.env)"' \
+    && ok "settings.json sperrt .env für Sessions (im deny-Block)" || nichtok "settings.json sperrt .env für Sessions (im deny-Block)"
 enthaelt_muster "CLAUDE.md jetzt vorhanden" 'ok +CLAUDE\.md'
 enthaelt_muster "CLAUDE.md hat Befehle" 'ok +CLAUDE\.md hat einen Abschnitt „Befehle“'
 enthaelt_muster "version.txt entspricht dem Tag" 'ok +version\.txt entspricht dem letzten Tag'
@@ -209,6 +230,8 @@ git_repo "$b"
 
 lauf 0 "ohne Stack: Bericht endet mit 0" --dir "$b"
 enthaelt "kein Stack erkannt" "keiner erkannt"
+lauf 0 "mit --stack script: Bericht endet mit 0" --dir "$b" --stack script
+enthaelt_muster "Stufe 3 (script): Kennzahlen fehlen, Vorlage genannt" 'fehlt +Kennzahlen je Funktion .*← templates/script/dateien/scripts/komplexitaet-pruefen\.sh'
 lauf 1 "--apply ohne origin und ohne --owner wird abgewiesen" --dir "$b" --apply --stack script
 enthaelt "Meldung nennt --owner" "--owner"
 lauf 0 "--apply mit --stack script und --owner" --dir "$b" --apply --stack script --owner musterorg
@@ -223,6 +246,15 @@ grep -q 'Befehle des Projekts eintragen' "$b/CLAUDE.md" \
     && ok "CLAUDE.md: Hinweis statt erfundener Befehle" || nichtok "CLAUDE.md: Hinweis statt erfundener Befehle"
 [ -f "$b/.claude/rules/tests.md" ] \
     && ok "Regeln des Stacks script" || nichtok "Regeln des Stacks script"
+[ -f "$b/.githooks/pre-commit" ] && [ -f "$b/.gitleaks.toml" ] \
+    && ok "pre-commit-Hook und .gitleaks.toml angelegt" || nichtok "pre-commit-Hook und .gitleaks.toml angelegt"
+# Das Bit kommt nur über den Index ins Repo (Windows: core.fileMode=false); der Hook ist
+# deshalb schon vorgemerkt, alles andere bleibt unversioniert bis zum Commit des Menschen.
+[ "$(git -C "$b" ls-files -s .githooks/pre-commit | cut -c1-6)" = "100755" ] \
+    && ok "Ausführbar-Bit im Index: .githooks/pre-commit" \
+    || nichtok "Ausführbar-Bit im Index: .githooks/pre-commit"
+[ "$(git -C "$b" config core.hooksPath)" = ".githooks" ] \
+    && ok "core.hooksPath zeigt auf .githooks" || nichtok "core.hooksPath zeigt auf .githooks"
 grep -q 'Stufe 3: tests/' "$b/docs/status.md" \
     && ok "status.md nennt fehlende Tests" || nichtok "status.md nennt fehlende Tests"
 hook_stacks "$b" | grep -q 'Stack erkannt: script' \
@@ -238,6 +270,42 @@ lauf 0 "--apply mit --vault" --dir "$b" --apply --stack script --owner musterorg
     && ok "Vault-Akte angelegt" || nichtok "Vault-Akte angelegt"
 grep -q 'aufgenommen: \[\[bestand-werkzeug\]\]' "$v/05-daily/$(date +%Y-%m-%d).md" 2>/dev/null \
     && ok "Daily-Log-Zeile" || nichtok "Daily-Log-Zeile"
+
+# ------------------------------------------- Bestand: erklärt, aber alte settings.json
+echo
+echo "== Bestand mit älterer settings.json (ohne permissions)"
+c="$tmp/bestand-alt"
+mkdir -p "$c/.claude" "$c/scripts"
+printf '{\n  "enabledPlugins": { "coding-standard@corevision": true }\n}\n' > "$c/.claude/settings.json"
+printf '#!/usr/bin/env bash\necho hallo\n' > "$c/scripts/hallo.sh"
+printf '# Alt\n\nWerkzeug mit älterer Erklärung.\n' > "$c/README.md"
+git_repo "$c"
+lauf 0 "Bericht endet mit 0" --dir "$c"
+enthaelt "bereits erklärt" "Erklärt:  ja"
+enthaelt_muster "Stufe 1: fehlende permissions werden gemeldet" 'fehlt +\.claude/settings\.json: permissions'
+lauf 0 "--apply mit --stack script und --owner" --dir "$c" --apply --stack script --owner musterorg
+grep -q '"permissions"' "$c/.claude/settings.json" \
+    && nichtok "ältere settings.json wird nicht überschrieben" || ok "ältere settings.json wird nicht überschrieben"
+grep -q 'settings.json ohne `permissions`' "$c/docs/status.md" \
+    && ok "status.md nennt die fehlende Sperrliste als Lücke" || nichtok "status.md nennt die fehlende Sperrliste als Lücke"
+grep -q 'settings.json ohne `permissions`' "$c"/docs/decisions/0001-aufnahme-firmenstandard.md \
+    && ok "ADR nennt die fehlende Sperrliste als Lücke" || nichtok "ADR nennt die fehlende Sperrliste als Lücke"
+
+echo
+echo "== Bestand mit eigenem Hook-Ordner (core.hooksPath bleibt)"
+d="$tmp/bestand-husky"
+mkdir -p "$d/scripts" "$d/.husky/_"
+printf '#!/usr/bin/env bash\necho hallo\n' > "$d/scripts/hallo.sh"
+printf '#!/usr/bin/env sh\nexit 0\n' > "$d/.husky/_/pre-commit"
+printf '# Husky\n\nWerkzeug mit eigenen Hooks.\n' > "$d/README.md"
+git_repo "$d"
+git -C "$d" config core.hooksPath .husky/_
+lauf 0 "--apply bei bestehendem core.hooksPath" --dir "$d" --apply --stack script --owner musterorg
+enthaelt "Meldung nennt den bestehenden Hook-Ordner" "core.hooksPath bleibt auf '.husky/_'"
+[ "$(git -C "$d" config core.hooksPath)" = ".husky/_" ] \
+    && ok "bestehender core.hooksPath wird nicht überschrieben" || nichtok "bestehender core.hooksPath wird nicht überschrieben"
+[ -f "$d/.githooks/pre-commit" ] \
+    && ok "Hook-Datei trotzdem angelegt (zum Einhängen)" || nichtok "Hook-Datei trotzdem angelegt (zum Einhängen)"
 
 echo
 if [ "$fehler" -eq 0 ]; then

@@ -58,15 +58,32 @@ Die Abschnitte füllen — mit dem, was wirklich passiert ist:
   für den Umfang, dann die tatsächlich geänderten Stellen ansehen). Das *Warum* steht nicht
   im Diff; es kommt aus den Commit-Bodies, dem Issue oder `$ARGUMENTS`. Fehlt es, sag das
   im PR offen, statt eines zu erfinden.
+- **Abnahmekriterien** — A1…An aus dem Auftrag (Plan, Issue, `$ARGUMENTS`), je mit Nachweis
+  (Testfall, Datei:Zeile, Klickweg) und der Invariante, die erhalten bleibt. Fehlen sie im
+  Auftrag, aus dem Diff ableiten und als Vorschlag kennzeichnen.
 - **Prüfweg** — nur Befehle, die in dieser Session tatsächlich gelaufen sind, mit Ergebnis.
   Getrennt nach automatisiert (Befehl) und manuell (Klickweg). Nichts eintragen, was nur
   hätte laufen können.
 - **Risiko** — was kaputtgehen kann und wer es merkt.
 - **Migration / ENV-Änderung** — geänderte Dateien unter `database/migrations`, `.env.example`
   oder gleichwertig; ob ein Handgriff beim Update nötig ist. Gibt es nichts: „keine".
+- **Prüfprotokoll** — nur bei Rechten, Schema, Mandanten, Anmeldung, Geld oder
+  Kundenauslieferung: Soll/Ist je Anforderung mit Beleg, Befunde mit Schwere und Frist,
+  bewusst nicht Getanes, Gegenprüfung (zweites Modell oder Mensch), Urteil FREIGEGEBEN /
+  BEDINGT / GESPERRT. Wer prüft, hat nicht gebaut. Sonst den Abschnitt aus dem Body löschen.
 - **DoD-Checkliste** — nur ankreuzen, was belegt ist.
 
 ## 4. Anlegen
+
+Vorher den Body prüfen — dieselbe Prüfung läuft in der CI (Schritt „PR-Text prüfen“):
+
+```bash
+bash scripts/pr-text-pruefen.sh <datei>
+```
+
+Fehlt der Prüfer im Repo (Bestand vor `/projekt-aufnehmen --apply`), die Kopie des Plugins
+nehmen: `bash "${CLAUDE_PLUGIN_ROOT}/templates/repo/scripts/pr-text-pruefen.sh" <datei>`.
+Rot heißt: Lücken füllen, nicht anlegen. Dann:
 
 ```bash
 gh pr create --draft --title "<titel>" --body-file <datei>

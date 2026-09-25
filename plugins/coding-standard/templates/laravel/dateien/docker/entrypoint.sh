@@ -38,8 +38,9 @@ php artisan route:cache
 php artisan view:cache
 php artisan event:cache
 
-# Verknüpfung für öffentlich erreichbare Dateien; fällt still aus, wenn sie
-# bereits besteht.
+# Die Verknüpfung public/storage kommt seit der Härtung aus dem Dockerfile (das
+# Wurzeldateisystem ist schreibgeschützt); der Aufruf bleibt für ältere Abbilder
+# und fällt still aus, wenn sie schon besteht.
 php artisan storage:link --quiet 2>/dev/null || true
 
 exec "$@"

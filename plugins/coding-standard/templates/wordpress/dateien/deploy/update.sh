@@ -28,6 +28,13 @@ neu="${1#v}"
 
 [ -f .env ] || abbruch "Die .env fehlt."
 
+# Sichere Konfiguration der Instanz: WP_ENV=production — development schaltet WP_DEBUG und
+# die Anzeige von Fehlern ein (config/environments/development.php). Gehört auf die
+# Dev-Instanz (deploy/dev.sh), nie hierher.
+# Der letzte Eintrag gilt (so lesen es compose und dotenv), die Form „export KEY=“ ebenso.
+wp_env="$(sed -n 's/^\(export \)\{0,1\}WP_ENV=//p' .env | tail -n 1 | tr -d '\r"')"
+[ "$wp_env" = production ] || abbruch "WP_ENV=${wp_env:-<leer>} — auf diesem Server muss production stehen."
+
 alt="$(sed -n 's/^APP_VERSION=//p' .env | head -n 1 | tr -d '\r')"
 [ -n "$alt" ] || abbruch "In der .env steht kein APP_VERSION — Rückweg wäre unbekannt."
 
@@ -87,6 +94,11 @@ case "$antwort" in
         rueckweg
         ;;
 esac
+
+# Rauchtest: die Routen aus deploy/smoke.txt mit Status, Zeitbudget und Pflichtinhalt.
+# Rot heißt: Die neue Fassung läuft, aber nicht richtig — Rückweg wie bei jedem Fehler.
+meldung "Rauchtest (deploy/smoke.txt)"
+deploy/smoke.sh || rueckweg
 
 meldung "Fertig — es läuft Fassung ${neu}"
 if [ -n "$sicherung" ]; then

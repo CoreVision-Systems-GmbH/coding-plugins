@@ -35,6 +35,15 @@ ignore = [
 # In Tests sind assert-Anweisungen der Zweck der Übung.
 "tests/**" = ["S101"]
 
+# Kennzahlen je Funktion (scripts/komplexitaet-pruefen.sh: C901, PLR0912, PLR0915) — bis Ende
+# 2026 eine Warnung, ab 2027-01-01 ein Tor. Eine Funktion, die hier anschlägt, wird zerlegt.
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-branches = 12
+max-statements = 50
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -46,3 +55,20 @@ exclude = ["^\\.venv/"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+
+# Mutationstest (nightly.yml): mutiert wird die Fachlogik in app/, nicht Router, Einstieg
+# und Schemata — ein überlebender Mutant heißt, dass die Änderung kein Test bemerkt hätte.
+# mutmut 3 braucht den ganzen Paketbaum als Quelle (es importiert aus mutants/app),
+# deshalb source_paths = app mit Ausnahmen statt nur app/modules.
+[tool.mutmut]
+source_paths = ["app"]
+pytest_add_cli_args_test_selection = ["tests"]
+do_not_mutate = [
+    "app/__init__.py",
+    "app/main.py",
+    "app/settings.py",
+    "app/schemas.py",
+    "app/modules/__init__.py",
+    "app/modules/*/__init__.py",
+    "app/modules/*/router.py",
+]

@@ -1,3 +1,6 @@
+<!-- Die CI prüft diesen Text (scripts/pr-text-pruefen.sh): Abnahmekriterien mit Nachweis, ein
+     Prüfweg mit Ergebnis, „Nicht geprüft“ und „Rückweg“ müssen gefüllt sein. Kommentare zählen nicht. -->
+
 # Was und Warum
 
 <!-- Was ändert sich aus Sicht eines Nutzers? Warum? Wenn es ein Issue gibt: "Schließt #123". -->
@@ -39,6 +42,21 @@ Invariante, die erhalten bleibt:
 - **Auswirkung:**
 - **Rückweg (Rollback):**
 
+# Prüfprotokoll
+
+<!-- Pflicht bei Rechten, Schema, Mandanten, Anmeldung, Geld oder Kundenauslieferung — sonst den
+     Abschnitt löschen. Wer prüft, hat nicht gebaut: Subagent in frischem Kontext, zweites Modell
+     oder ein Mensch. Soll = Anforderung, Ist = beobachtetes Verhalten, Beleg = Test, Ausgabe, Klickweg. -->
+
+| Anforderung | Soll | Ist | Beleg |
+|---|---|---|---|
+| A1 |  |  |  |
+
+- **Befunde:** keine / je Schwere (CRITICAL, HIGH, MEDIUM, LOW) mit Frist
+- **Bewusst nicht getan:**
+- **Gegenprüfung (zweites Modell oder zweiter Mensch):** stimmt überein / weicht ab — das schärfere Urteil gilt
+- **Urteil:** FREIGEGEBEN / BEDINGT (Auflagen: …) / GESPERRT (Grund: …)
+
 # Migration und ENV-Änderung
 
 <!-- "keine" ist eine gültige Antwort. -->
@@ -57,7 +75,7 @@ Nur ankreuzen, was belegt ist.
 - [ ] Review in frischem Kontext gelaufen; bei Anmeldung, Rechten, Datenbank oder Mandanten
       auch der Sicherheits-Review
 - [ ] Bei Rechten, Schema, Mandanten, Anmeldung, Geld oder vollständig KI-erzeugtem Bestand:
-      ein zweites Modell oder ein zweiter Mensch hat gegengeprüft
+      ein zweites Modell oder ein zweiter Mensch hat gegengeprüft — Prüfprotokoll gefüllt
 - [ ] `CHANGES.md` unter „Unveröffentlicht" ergänzt
 - [ ] README oder ADR nachgezogen, falls Betrieb oder Richtung betroffen sind
 - [ ] Diff sauber: keine fremden Änderungen, keine Debug-Reste, keine Secrets

@@ -18,11 +18,33 @@
 
 name: {{NAME}}
 
+# Härtung: keine Rechteausweitung, keine Capabilities, Logs rotiert (5 × 20 MB).
+# Das Wurzeldateisystem ist schreibgeschützt; Caddy schreibt nur seinen
+# Zustand nach /data und /config (tmpfs) — die Site selbst liegt fertig in /srv.
+# Der Container läuft als web (uid 10001): Ein tmpfs gehört sonst root, deshalb
+# uid/gid am Mount; /tmp erbt 1777 aus dem Abbild.
+x-haertung: &haertung
+    security_opt:
+        - no-new-privileges:true
+    cap_drop:
+        - ALL
+    logging:
+        driver: json-file
+        options:
+            max-size: '20m'
+            max-file: '5'
+
 services:
     app:
+        <<: *haertung
         image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
         container_name: {{NAME}}-app
         restart: unless-stopped
+        read_only: true
+        tmpfs:
+            - /tmp
+            - /data:uid=10001,gid=10001
+            - /config:uid=10001,gid=10001
         networks:
             - edge
         healthcheck:

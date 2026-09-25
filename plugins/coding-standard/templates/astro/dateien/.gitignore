@@ -4,6 +4,11 @@ dist/
 .astro/
 npm-debug.log*
 
+# Playwright (tests/e2e)
+test-results/
+playwright-report/
+tests/e2e/ergebnis.json
+
 # Umgebung und Geheimnisse
 .env
 .env.*

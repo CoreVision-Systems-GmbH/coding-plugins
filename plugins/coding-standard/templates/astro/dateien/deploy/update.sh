@@ -70,5 +70,10 @@ case "$antwort" in
         ;;
 esac
 
+# Rauchtest: die Routen aus deploy/smoke.txt mit Status, Zeitbudget und Pflichtinhalt.
+# Rot heißt: Die neue Fassung läuft, aber nicht richtig — Rückweg wie bei jedem Fehler.
+meldung "Rauchtest (deploy/smoke.txt)"
+deploy/smoke.sh || rueckweg
+
 meldung "Fertig — es läuft Fassung ${neu}"
 echo "Rückweg, falls nötig: deploy/update.sh ${alt}"

@@ -88,7 +88,8 @@ Arbeitsplatz genügt die **Grundausstattung**; Stack-Werkzeuge braucht er nur, w
 prüfen willst, und **Docker nur im Notfall** (etwa ohne Verbindung zum Dev-Server).
 
 **Grundausstattung** (immer): Git (Windows mit Git Bash — die Hooks des Standards sind
-bash-Skripte), GitHub CLI `gh`, Claude Code, KeePassXC, die Ordner aus A.2, der Marketplace
+bash-Skripte), GitHub CLI `gh`, Claude Code, gitleaks (Geheimnis-Scanner — der pre-commit-Hook
+jedes Projekts ruft ihn vor jedem Commit auf), KeePassXC, die Ordner aus A.2, der Marketplace
 `corevision` mit dem Plugin `coding-standard` und automatischer Aktualisierung — und für die
 Verbindung zum Dev-Server **Tailscale, VS Code mit der Erweiterung Remote-SSH und ein
 SSH-Schlüssel**.
@@ -153,9 +154,9 @@ Unsicher? Erst mit `-DryRun` bzw. `--dry-run` laufen lassen und lesen, was es vo
 In dieser Reihenfolge; Vorhandenes wird übersprungen — ein zweiter Lauf holt nur Fehlendes nach.
 
 1. **Grundausstattung:** Git, GitHub CLI, Claude Code (nativer Installer, aktualisiert sich
-   selbst), KeePassXC; auf dem Arbeitsplatz dazu Tailscale, VS Code, die Erweiterung Remote-SSH
-   und ein SSH-Schlüssel (`ssh-keygen -t ed25519`, fragt nach einer Passphrase). macOS: vorher
-   Homebrew, falls es fehlt (fragt nach deinem Passwort).
+   selbst), gitleaks, KeePassXC; auf dem Arbeitsplatz dazu Tailscale, VS Code, die Erweiterung
+   Remote-SSH und ein SSH-Schlüssel (`ssh-keygen -t ed25519`, fragt nach einer Passphrase).
+   macOS: vorher Homebrew, falls es fehlt (fragt nach deinem Passwort).
 2. **Ordner** `~/Code` und `~/Tresor` (A.2).
 3. **Marketplace und Plugin** mit **automatischer Aktualisierung** (A.9). Dafür wird
    `~/.claude/settings.json` ergänzt; die alte Fassung bleibt als `settings.json.bak-setup`.
@@ -163,6 +164,7 @@ In dieser Reihenfolge; Vorhandenes wird übersprungen — ein zweiter Lauf holt 
 
    | Baustein | Windows (winget) | macOS (Homebrew) | Ubuntu/Debian (apt) |
    |---|---|---|---|
+   | gitleaks | `Gitleaks.Gitleaks` | `gitleaks` | Binary 8.30.1 aus dem GitHub-Release mit Prüfsumme nach `~/.local/bin` (kein apt-Paket) |
    | Tailscale | `Tailscale.Tailscale` | Cask `tailscale-app` | Skript `tailscale.com/install.sh` |
    | VS Code, Remote-SSH | `Microsoft.VisualStudioCode`, dann `code --install-extension ms-vscode-remote.remote-ssh` | Cask `visual-studio-code`, dann dasselbe | `snap install code --classic`, dann dasselbe |
    | PHP, Composer, Laravel-Installer | `BeyondCode.Herd` | `php@8.4`, `composer`, dann `composer global require laravel/installer` | `php8.4-cli php8.4-intl …` (Ubuntu ohne 8.4: PPA `ondrej/php`), Composer von getcomposer.org mit Prüfsumme |
@@ -231,6 +233,21 @@ tun das nicht. Quelle: [code.claude.com/docs/en/setup](https://code.claude.com/d
 Windows:      irm https://claude.ai/install.ps1 | iex
 macOS/Linux:  curl -fsSL https://claude.ai/install.sh | bash
 Prüfen:       claude --version
+```
+
+**gitleaks** — Geheimnis-Scanner. Der pre-commit-Hook jedes Projekts (`.githooks/pre-commit`)
+ruft ihn vor jedem Commit auf, die CI prüft dieselben Regeln (`.gitleaks.toml`) noch einmal.
+Fehlt er, warnt der Hook nur. In der CI läuft fest 8.30.1; lokal die aktuelle Fassung
+(unter Linux das Binary 8.30.1 mit festgenagelter Prüfsumme), mindestens 8.19 wegen `gitleaks git`.
+Quelle: [github.com/gitleaks/gitleaks](https://github.com/gitleaks/gitleaks).
+
+```
+Windows:  winget install --id Gitleaks.Gitleaks -e
+macOS:    brew install gitleaks
+Linux:    von github.com/gitleaks/gitleaks/releases (v8.30.1) gitleaks_8.30.1_linux_x64.tar.gz und
+          gitleaks_8.30.1_checksums.txt laden, sha256sum -c --ignore-missing gitleaks_8.30.1_checksums.txt,
+          dann das Binary gitleaks aus dem Archiv nach ~/.local/bin (kein apt-Paket)
+Prüfen:   gitleaks version   → 8.30.1
 ```
 
 **KeePassXC** — Tresor für Geheimnisse (A.6.4). Quelle: [keepassxc.org/download](https://keepassxc.org/download/).
@@ -436,8 +453,12 @@ Auf dem Dev-Server (VS Code mit Remote-SSH, Terminal dort):
 ```
 gh repo clone CoreVision-Systems-GmbH/<projekt> ~/Code/<projekt>
 cd ~/Code/<projekt>
+git config core.hooksPath .githooks     # Prüfhooks des Repos: gitleaks vor jedem Commit
 claude
 ```
+
+`core.hooksPath` ist lokale Git-Konfiguration und reist nicht mit dem Klon — deshalb einmal je
+Klon. Der Hook warnt nur, wenn gitleaks fehlt; die CI prüft in jedem Fall.
 
 Beim ersten Start fragt Claude Code, ob du dem Ordner und dem Marketplace `corevision` vertraust
 — ja. Danach meldet es „Firmenstandard coding-standard@corevision gilt in diesem Repo (Stack
@@ -516,6 +537,8 @@ aus — `--check` meldet eine zu alte Fassung.
 | Beim Start kein Hinweis „Firmenstandard … gilt“ | Ordner nicht vertraut, oder das Projekt erklärt den Standard nicht | Claude Code im Projektordner neu starten und vertrauen |
 | `claude plugin install` findet das Plugin nicht | Marketplace-Kopie veraltet | `claude plugin marketplace update corevision` |
 | Das Skript bricht unter Git Bash ab | `setup.sh` ist nicht für Windows | `setup.ps1` in der PowerShell |
+| Beim Commit „pre-commit: gitleaks fehlt“ | Scanner nicht installiert oder nicht im PATH | Skript erneut starten (Grundausstattung) oder A.5.1; neue Shell |
+| Der Commit geht durch, obwohl `.githooks/pre-commit` da ist | `core.hooksPath` in diesem Klon nicht gesetzt | `git config core.hooksPath .githooks` (A.7) |
 
 Hilft nichts davon: Ausgabe des Skripts und von `--check` als Issue in
 [`coding-plugins`](https://github.com/CoreVision-Systems-GmbH/coding-plugins/issues) melden.

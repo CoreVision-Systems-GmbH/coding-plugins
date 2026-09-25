@@ -118,6 +118,20 @@ cd <zielordner> && git checkout -b chore/firmenstandard-nacharbeit
       `lint`, `lint:check`, `types:check`, `test`. Das Starter-Kit bringt alles außer
       `ci:setup` mit. `types:check` braucht `phpstan analyse --memory-limit=1G` — mit den
       voreingestellten 128 MB stürzt Larastan auf Stufe 8 ab.
+- [ ] `composer.json`-Script `check` — der eine Prüfbefehl des Repos, erste Zeile unter
+      „Befehle“ in der `CLAUDE.md`: `"check": ["npm run build", "@ci:check", "@php artisan
+      view:cache", "bash scripts/komplexitaet-pruefen.sh", "bash scripts/konfig-pruefen.sh",
+      "bash scripts/lizenzen-pruefen.sh"]` — erst der Bau, damit Pest auf einem frischen Klon
+      das Vite-Manifest vorfindet (`ci:check` = Pint, Larastan, Pest, `npm run check`,
+      `npm run types:check`); `view:cache` übersetzt jede Blade-Vorlage und findet
+      Syntaxfehler, die kein Test aufruft.
+- [ ] `composer require --dev phpmd/phpmd rector/rector` — `phpmd.xml`, `rector.php`,
+      `pint.json` und `.github/workflows/monatlich.yml` kommen aus der Vorlage. Pint mit
+      `declare_strict_types` und Import-Regeln einmal laufen lassen (`composer lint`), das
+      ergibt einen eigenen Commit „chore: strict_types und Imports (Pint)“.
+- [ ] `phpunit.xml`: `<env name="DB_CONNECTION" value="sqlite" force="true"/>` und
+      `<env name="DB_DATABASE" value=":memory:" force="true"/>` — keine `.env` eines
+      Entwicklers lenkt die Suite auf eine echte Datenbank.
 - [ ] `phpstan.neon`: `level: 8`, `paths` auf `app/ bootstrap/app.php config/ database/
       routes/`, unter Windows zusätzlich `configDirectories: [config]`. Stufe 8 meldet die
       Settings-Controller des Starter-Kits (`$request->user()` ist `User|null`): den Nutzer
@@ -129,17 +143,22 @@ cd <zielordner> && git checkout -b chore/firmenstandard-nacharbeit
       `lint.ignorePatterns` **und** `fmt.ignorePatterns`. Sonst prüft `npm run check`
       51 Dateien, die niemand von Hand geschrieben hat.
 - [ ] `tests/Feature/AppVersionTest.php`: die Fassung ist auf **beiden** Oberflächen sichtbar.
+- [ ] `package.json`: `@playwright/test` als devDependency (`npm install -D @playwright/test`),
+      Script `"e2e": "playwright test --config tests/e2e/playwright.config.ts"`; die Dateien
+      unter `tests/e2e/` kommen aus der Vorlage. `types:check` um `&& tsc -p tests/e2e` ergänzen
+      (die Spezifikationen liegen außerhalb der `include`-Liste des Kits, sonst prüft sie
+      niemand). Läuft gegen die Dev-Instanz (`E2E_BASE_URL`), nicht in der CI; Browser einmal
+      `npx playwright install chromium` — alle drei Viewports nutzen Chromium.
 - [ ] Windows: Filament und Boost schreiben einzelne Dateien mit CRLF. Einmal
       `composer lint` laufen lassen, sonst scheitert Pint an `bootstrap/providers.php`.
 
-Danach beides laufen lassen und die letzten Zeilen wörtlich zitieren:
+Danach den Prüfbefehl laufen lassen und die letzten Zeilen wörtlich zitieren:
 
 ```bash
-composer test
-npm run check && npm run types:check && npm run build
+composer check
 ```
 
-Erst wenn beides grün ist — und nur über einen PR, nie direkt auf `main` (den Push dorthin
+Erst wenn er grün ist — und nur über einen PR, nie direkt auf `main` (den Push dorthin
 blockt der Git-Guard ohnehin):
 
 ```bash

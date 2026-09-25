@@ -1,0 +1,78 @@
+# .gitleaks.toml — Regeln des Geheimnis-Scanners gitleaks für dieses Repo.
+#
+# Gelesen vom pre-commit-Hook (.githooks/pre-commit) und vom CI-Schritt „Geheimnisse
+# (gitleaks)“; beide finden die Datei im Wurzelverzeichnis von selbst. Ein Fehlalarm wird
+# hier erlaubt — so eng wie möglich, mit Grund als Kommentar. Ein echtes Geheimnis wird
+# gewechselt, nie erlaubt.
+
+title = "Firmenstandard — gitleaks"
+
+# Die eingebauten Regeln (AWS, GitHub, Stripe, private Schlüssel, generische API-Keys …)
+# bleiben vollständig; hier stehen nur Ergänzungen. Ohne diesen Block würden die eigenen
+# Regeln unten die eingebauten ersetzen statt sie zu erweitern.
+[extend]
+useDefault = true
+
+# ------------------------------------------------------------------ Erlaubt
+
+# .env.example ist das Schema mit Platzhaltern (Kern: „.env bleibt lokal, .env.example ist
+# das Schema mit Kommentar je Schlüssel“). Beispielwerte mit Struktur (base64:…, sk_test_…)
+# lösen die generischen Regeln aus, sind aber keine Geheimnisse. Echte Werte gehören dort
+# nie hinein — das sieht das Review, nicht der Scanner.
+[[allowlists]]
+description = ".env.example: Schema mit Platzhaltern, keine echten Werte"
+paths = ['''(^|/)\.env\.example$''']
+
+# Platzhalter in spitzen Klammern (<token>, <api-key>, <passwort>) stehen in README, Doku und
+# Vorlagen für einen Wert, den ein Mensch später einsetzt. Geprüft wird der Treffer selbst,
+# nicht die ganze Zeile — ein echtes Geheimnis neben einem Platzhalter bleibt ein Treffer.
+[[allowlists]]
+description = "Platzhalter <so-etwas> in Doku und Vorlagen"
+regexTarget = "match"
+regexes = ['''<[A-Za-z][A-Za-z0-9_.-]*>''']
+
+# Beispieldomänen (RFC 2606): Eine Zeile, die auf example.org, example.com, example.net oder
+# example.invalid zeigt, ist per Definition ein Beispiel — Verbindungs-URLs in Doku und
+# Tests, Adressen in Testdaten. Bewusst die ganze Zeile: Eine Verbindungs-URL trägt Nutzer,
+# Passwort und Host in einem Wort. Preis: Ein echtes Geheimnis neben einer Beispieldomäne
+# auf derselben Zeile bleibt unentdeckt — das sieht das Review. Die Domäne muss enden
+# (kein example.com.evil.net). Andere Domänen bleiben Treffer.
+[[allowlists]]
+description = "Beispieldomänen nach RFC 2606 (ganze Zeile)"
+regexTarget = "line"
+regexes = ['''(?i)\bexample\.(org|com|net|invalid)([/:"'\s,;)]|$)''']
+
+# ------------------------------------------------------------------ Zusatzregeln für tests/
+
+# Testdaten sind synthetisch (Overlay tests.md): keine echten Personen, keine echten Konten.
+# Beide Regeln gelten nur unter tests/ — im Code sind IBAN-Muster und Adressen Teil von
+# Validierung und Beispielen; in Testdaten sind sie das Zeichen für kopierte Produktionsdaten.
+
+# IBAN: zwei Buchstaben Land, zwei Prüfziffern, 11 bis 30 Zeichen Kontokennung, als Wort.
+# Das Muster prüft keine Struktur — Großbuchstaben-Kennungen ähnlicher Form sind Treffer und
+# werden je Repo erlaubt. Die bekannten Test-IBANs der Banken sind frei.
+[[rules]]
+id = "testdaten-iban"
+description = "IBAN in Testdaten — echte Kontodaten gehören nicht in tests/"
+regex = '''\b[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}\b'''
+path = '''(^|/)tests/'''
+
+    [[rules.allowlists]]
+    description = "veröffentlichte Test-IBANs (Deutsche Bundesbank, Beispiele der Banken)"
+    regexTarget = "match"
+    regexes = ['''^(DE89370400440532013000|DE02120300000000202051|AT611904300234573201|CH9300762011623852957|GB82WEST12345698765432)$''']
+
+# E-Mail-Adressen mit echter Domäne. Erlaubt sind nur die Beispieldomänen (RFC 2606:
+# example.org/com/net und die reservierten Endungen .test, .example, .invalid, .localhost)
+# und localhost — als Allowlist der Regel, weil RE2 (Go) keine negative Vorausschau kennt
+# und die Ausnahme sich deshalb nicht in den regulären Ausdruck selbst schreiben lässt.
+[[rules]]
+id = "testdaten-email"
+description = "E-Mail-Adresse mit echter Domäne in Testdaten — nur example.org & Co."
+regex = '''\b[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}\b'''
+path = '''(^|/)tests/'''
+
+    [[rules.allowlists]]
+    description = "Beispieldomänen und localhost sind synthetisch"
+    regexTarget = "match"
+    regexes = ['''(?i)@([a-z0-9-]+\.)*(example\.(org|com|net)|[a-z0-9-]+\.(test|example|invalid|localhost)|localhost)$''']

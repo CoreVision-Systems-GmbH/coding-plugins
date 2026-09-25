@@ -14,16 +14,45 @@ services:
         environment:
             APP_ENV: local
             APP_DEBUG: 'true'
+            # Mail landet in Mailpit (Dienst `mail`), nie bei echten Empfängern.
+            MAIL_MAILER: smtp
+            MAIL_SCHEME: smtp
+            MAIL_HOST: mail
+            MAIL_PORT: '1025'
 
     worker:
         container_name: {{NAME}}-dev-worker
         environment:
             APP_ENV: local
+            # Mail landet in Mailpit (Dienst `mail`), nie bei echten Empfängern.
+            MAIL_MAILER: smtp
+            MAIL_SCHEME: smtp
+            MAIL_HOST: mail
+            MAIL_PORT: '1025'
 
     scheduler:
         container_name: {{NAME}}-dev-scheduler
         environment:
             APP_ENV: local
+            # Mail landet in Mailpit (Dienst `mail`), nie bei echten Empfängern.
+            MAIL_MAILER: smtp
+            MAIL_SCHEME: smtp
+            MAIL_HOST: mail
+            MAIL_PORT: '1025'
 
     db:
         container_name: {{NAME}}-dev-db
+
+    # Mailpit fängt jede Mail der Dev-Instanz ab: Anmeldungen, Rücksetzlinks, Benachrichtigungen
+    # lassen sich lesen, ohne dass etwas nach draußen geht. Die Oberfläche (ohne Anmeldung!)
+    # hört nur auf der Tailscale-IP des Dev-Servers — deploy/dev.sh setzt DEV_BIND_IP aus
+    # /etc/corevision/server.env; ohne sie bleibt es bei 127.0.0.1 (SSH-Tunnel). Docker umgeht
+    # ufw für veröffentlichte Ports, 0.0.0.0 wäre auf einem Server mit öffentlicher IP offen.
+    mail:
+        image: axllent/mailpit:v1.28
+        container_name: {{NAME}}-dev-mail
+        restart: unless-stopped
+        networks:
+            - internal
+        ports:
+            - '${DEV_BIND_IP:-127.0.0.1}:8025:8025'

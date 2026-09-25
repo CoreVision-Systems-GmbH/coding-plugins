@@ -12,9 +12,19 @@
 # Laufzeitverhalten. Er soll den versehentlichen Griff verhindern, nicht den bösen Willen.
 #
 # Ausnahme: Liegt im Arbeitsverzeichnis der Session (cwd der Nutzlast) eine Datei
-# .git-guard-main-ok, ist der Push auf main/master dort erlaubt — gedacht für Doku- und
-# Backup-Repos ohne PR-Fluss (z. B. den Notiz-Vault). Alles andere (Force-Push, Löschen
-# von Remote-Zweigen, reset --hard, clean -f, branch -D, rm -rf) bleibt auch dort geblockt.
+# .git-guard-main-ok, sind dort der Push auf main/master und das pauschale Stagen
+# (git add -A) erlaubt — gedacht für Doku- und Backup-Repos ohne PR-Fluss (z. B. den
+# Notiz-Vault). Alles andere (Force-Push, Löschen von Remote-Zweigen, reset --hard,
+# clean -f, branch -D, rm -rf, --no-verify, Umbiegen der Hooks, Datenbanklöscher) bleibt
+# auch dort geblockt.
+#
+# Seit 1.0.0 zusätzlich geblockt: git add ohne Pfadangabe (. / -A / -u / :/ — Dateien mit
+# exaktem Pfad stagen, so landen .env, Dumps und Diagnoseskripte nicht im Repo), --no-verify
+# bei commit und push sowie das Umbiegen von core.hooksPath (die Prüfhooks des Repos gelten),
+# und die Datenbanklöscher migrate:fresh|refresh|reset, db:wipe, alembic downgrade base,
+# wp db reset|drop|clean — auch hinter Hüllen wie docker compose exec oder uv run (nur nach
+# Bestätigung des Nutzers, von Hand). Anführungszeichen zählen: "--no-verify" in einem
+# Commit-Text und der Rumpf eines Heredocs sind Daten, keine Befehle.
 
 set -u
 set -f  # Globbing aus: sonst expandiert "rm -rf *" beim Zerlegen zu Dateinamen.
@@ -116,6 +126,7 @@ check_push() {
       --force|--force=*)        force=1 ;;
       --force-with-lease|--force-with-lease=*|--force-if-includes) lease=1 ;;
       --delete)                 delete=1 ;;
+      --no-verify)              deny "Blockiert: git push --no-verify umgeht die Prüfhooks des Repos (Geheimnis-Scanner). Befund beheben, nicht umgehen." ;;
       --*)                      : ;;
       -)                        : ;;
       -*)
@@ -277,12 +288,145 @@ check_git() {
         esac
       done
       ;;
+
+    add)
+      # Pauschales Stagen nimmt alles mit, auch .env, Dumps und Diagnoseskripte
+      # (Fehlermuster F und H). In Repos ohne PR-Fluss (Marker) bleibt es erlaubt.
+      main_push_allowed && return 0
+      for arg in ${args[@]+"${args[@]}"}; do
+        case "$arg" in
+          "."|"./"|"*"|"./*"|":/"|":/."|":/*"|":(top)"*|"--all"|"--update"|"--no-ignore-removal")
+            deny "Blockiert: git add $arg nimmt alles mit, auch .env, Dumps und Diagnoseskripte. Dateien mit exaktem Pfad stagen (git add <datei> …); git status --short zeigt die Liste vorher." ;;
+          --*) : ;;
+          -*) case "$arg" in *A*|*u*) deny "Blockiert: git add $arg nimmt alles mit, auch .env, Dumps und Diagnoseskripte. Dateien mit exaktem Pfad stagen (git add <datei> …); git status --short zeigt die Liste vorher." ;; esac ;;
+        esac
+      done
+      ;;
+
+    commit)
+      for arg in ${args[@]+"${args[@]}"}; do
+        case "$arg" in
+          --no-verify) deny "Blockiert: git commit --no-verify umgeht die Prüfhooks des Repos (Geheimnis-Scanner, Formatter). Der Hook ist der Grund, warum der Commit sauber ist — Befund beheben, nicht umgehen." ;;
+          --*) : ;;
+          -*) case "$arg" in *n*) deny "Blockiert: git commit -n umgeht die Prüfhooks des Repos (Geheimnis-Scanner, Formatter). Befund beheben, nicht umgehen." ;; esac ;;
+        esac
+      done
+      ;;
+
+    config)
+      # core.hooksPath darf nur auf die Hooks des Repos zeigen; alles andere schaltet die
+      # Prüfhooks ab. Lesen bleibt erlaubt. Formen: `git config core.hooksPath X`,
+      # `git config set core.hooksPath X` (git ≥ 2.46), `--unset`, `unset`, `-f <datei>`.
+      local key="" value="" unset=0 lesen=0 skip=0
+      for arg in ${args[@]+"${args[@]}"}; do
+        if [ $skip -eq 1 ]; then skip=0; continue; fi
+        case "$arg" in
+          --unset|--unset-all|--remove-section) unset=1 ;;
+          --get|--get-all|--get-regexp|--list|-l) lesen=1 ;;
+          -f|--file|--blob|--type|--default) skip=1 ;;
+          --*|-*) : ;;
+          set|get|list) [ -z "$key" ] && [ "$arg" = "get" ] && lesen=1 ;;
+          unset|unset-all) [ -z "$key" ] && unset=1 ;;
+          *) if [ -z "$key" ]; then key="$arg"; elif [ -z "$value" ]; then value="$arg"; fi ;;
+        esac
+      done
+      case "${key,,}" in
+        core.hookspath)
+          value="${value#./}"
+          while [ -n "$value" ] && [ "${value%/}" != "$value" ]; do value="${value%/}"; done
+          if [ $unset -eq 1 ]; then
+            deny "Blockiert: git config core.hooksPath entfernen schaltet die Prüfhooks des Repos ab. Erlaubt ist nur der Hook-Ordner des Repos: git config core.hooksPath .githooks."
+          fi
+          if [ $lesen -eq 0 ] && [ -n "$value" ] && [ "$value" != ".githooks" ]; then
+            deny "Blockiert: git config core.hooksPath biegt die Prüfhooks des Repos um. Erlaubt ist nur der Hook-Ordner des Repos: git config core.hooksPath .githooks."
+          fi
+          ;;
+      esac
+      ;;
+  esac
+
+  return 0
+}
+
+# ---------------------------------------------------------------- Datenbanklöscher
+
+# check_db <werkzeug> <args…> — Befehle, die eine ganze Datenbank leeren. Führende Optionen
+# (`alembic -c alembic.ini …`, `wp --path=… …`) werden übersprungen.
+check_db() {
+  local tool="$1"
+  shift
+  local -a args=("$@")
+  local -a rest=()
+  local arg skip=0
+  for arg in ${args[@]+"${args[@]}"}; do
+    if [ $skip -eq 1 ]; then skip=0; continue; fi
+    case "$arg" in
+      -c|-n|-x|--name|--path|--url|--user) [ ${#rest[@]} -eq 0 ] && { skip=1; continue; } ;;
+      -*) [ ${#rest[@]} -eq 0 ] && continue ;;
+    esac
+    rest+=("$arg")
+  done
+  local first="${rest[0]:-}" second="${rest[1]:-}"
+
+  case "$tool" in
+    artisan)
+      case "$first" in
+        migrate:fresh|migrate:refresh|migrate:reset|db:wipe)
+          deny "Blockiert: php artisan $first leert die Datenbank, auf die die .env zeigt — auch eine Dev-Instanz mit Testdaten oder, bei falscher .env, Produktion. Nur der Nutzer führt das aus, nach Blick auf DB_HOST; für Tests reicht RefreshDatabase." ;;
+      esac
+      ;;
+    alembic)
+      if [ "$first" = "downgrade" ] && [ "$second" = "base" ]; then
+        deny "Blockiert: alembic downgrade base nimmt alle Migrationen zurück und leert die Datenbank. Nur der Nutzer führt das aus, nach Blick auf die Datenbank-URL."
+      fi
+      ;;
+    wp)
+      if [ "$first" = "db" ]; then
+        case "$second" in
+          reset|drop|clean) deny "Blockiert: wp db $second leert oder löscht die Datenbank der Site. Nur der Nutzer führt das aus, nach Sicherung." ;;
+        esac
+      fi
+      ;;
   esac
 
   return 0
 }
 
 # ---------------------------------------------------------------- Teilbefehl prüfen
+
+# tokenize <segment> — füllt das Feld `tokens`, Anführungszeichen-fest: "kein -n" ist ein
+# Token, kein Flag. Ein Token, das ganz in Anführungszeichen stand und mit - beginnt, bekommt
+# ein Hochkomma vorangestellt, damit es kein Flag mehr ist (Commit-Text, kein Befehl).
+tokenize() {
+  local s="$1" i n ch tok="" quote="" quoted=0
+  tokens=()
+  n=${#s}
+  i=0
+  while [ $i -lt $n ]; do
+    ch="${s:$i:1}"
+    i=$((i + 1))
+    if [ -n "$quote" ]; then
+      if [ "$ch" = "$quote" ]; then quote=""
+      elif [ "$ch" = "\\" ] && [ "$quote" = '"' ] && [ $i -lt $n ]; then tok="$tok${s:$i:1}"; i=$((i + 1))
+      else tok="$tok$ch"; fi
+      continue
+    fi
+    case "$ch" in
+      '"'|"'") quote="$ch"; quoted=1 ;;
+      ' '|$'\t')
+        if [ -n "$tok" ] || [ $quoted -eq 1 ]; then
+          [ $quoted -eq 1 ] && [ "${tok:0:1}" = "-" ] && tok="'$tok"
+          tokens+=("$tok"); tok=""; quoted=0
+        fi ;;
+      '(') [ -z "$tok" ] || tok="$tok$ch" ;;   # führende Klammer einer Unterschale abstreifen
+      *) tok="$tok$ch" ;;
+    esac
+  done
+  if [ -n "$tok" ] || [ $quoted -eq 1 ]; then
+    [ $quoted -eq 1 ] && [ "${tok:0:1}" = "-" ] && tok="'$tok"
+    tokens+=("$tok")
+  fi
+}
 
 check_segment() {
   local segment="$1"
@@ -292,11 +436,7 @@ check_segment() {
 
   [ -n "${segment//[[:space:]]/}" ] || return 0
 
-  for word in $segment; do
-    word="${word//\"/}"
-    word="${word//\'/}"
-    [ -n "$word" ] && tokens+=("$word")
-  done
+  tokenize "$segment"
   [ ${#tokens[@]} -gt 0 ] || return 0
 
   # Führende Hüllen abstreifen: sudo, ENV-Zuweisungen, Schleifen-Schlüsselwörter.
@@ -313,11 +453,21 @@ check_segment() {
   case "${tokens[$i]}" in
     git)
       i=$((i + 1))
-      # Globale git-Optionen überspringen, bis der Unterbefehl kommt.
+      # Globale git-Optionen überspringen, bis der Unterbefehl kommt. Ein -c mit
+      # core.hooksPath biegt die Prüfhooks für diesen einen Aufruf um (auch als -ckey=wert,
+      # --config-env=… und in beliebiger Schreibung des Schlüssels).
       while [ $i -lt ${#tokens[@]} ]; do
-        case "${tokens[$i]}" in
-          -C|-c) i=$((i + 2)) ;;
-          --git-dir=*|--work-tree=*|--namespace=*|--no-pager|-P|--paginate|--literal-pathspecs|--no-replace-objects) i=$((i + 1)) ;;
+        word="${tokens[$i],,}"
+        case "$word" in
+          -c)
+            case "${tokens[$((i + 1))]:-}" in
+              [Cc][Oo][Rr][Ee].[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*) deny "Blockiert: git -c core.hooksPath=… umgeht die Prüfhooks des Repos für diesen Aufruf. Befund beheben, nicht umgehen." ;;
+            esac
+            i=$((i + 2)) ;;
+          -c*core.hookspath*|--config-env=core.hookspath=*) deny "Blockiert: git -c core.hooksPath=… umgeht die Prüfhooks des Repos für diesen Aufruf. Befund beheben, nicht umgehen." ;;
+          -c*|--config-env=*) i=$((i + 1)) ;;
+          -C) i=$((i + 2)) ;;
+          --git-dir=*|--work-tree=*|--namespace=*|--no-pager|-p|--paginate|--literal-pathspecs|--no-replace-objects) i=$((i + 1)) ;;
           *) break ;;
         esac
       done
@@ -332,7 +482,51 @@ check_segment() {
       ;;
   esac
 
+  # Datenbanklöscher: das Werkzeug kann hinter Hüllen stehen (docker compose exec … php
+  # artisan …, uv run alembic …, php -d … artisan …) — deshalb an jeder Stelle des Segments.
+  local j=0
+  while [ $j -lt ${#tokens[@]} ]; do
+    case "${tokens[$j]}" in
+      artisan|*/artisan)
+        args=("${tokens[@]:$((j + 1))}")
+        check_db artisan ${args[@]+"${args[@]}"}
+        break ;;
+      alembic|wp)
+        args=("${tokens[@]:$((j + 1))}")
+        check_db "${tokens[$j]}" ${args[@]+"${args[@]}"}
+        break ;;
+    esac
+    j=$((j + 1))
+  done
+
   return 0
+}
+
+# strip_heredocs <text> — entfernt die Rümpfe von Heredocs (<<EOF … EOF): Sie sind Daten
+# (Commit-Texte, Dateiinhalte), keine Befehle — sonst blockte `git add . wird geblockt` als
+# Zeile eines Commit-Rumpfs den ganzen Commit.
+strip_heredocs() {
+  local text="$1" line marker="" out=""
+  while IFS= read -r line; do
+    if [ -n "$marker" ]; then
+      [ "${line//[[:space:]]/}" = "$marker" ] && marker=""
+      continue
+    fi
+    out="$out$line"$'\n'
+    case "$line" in
+      *"<<"*)
+        marker="${line##*<<}"
+        case "$marker" in "<"*) marker=""; continue ;; esac   # <<< ist ein Here-String
+        marker="${marker#-}"
+        marker="${marker#"${marker%%[! ]*}"}"   # führende Leerzeichen
+        marker="${marker%%[[:space:]]*}"
+        marker="${marker//\'/}"
+        marker="${marker//\"/}"
+        marker="${marker%%\)*}"
+        ;;
+    esac
+  done <<< "$text"
+  printf '%s' "$out"
 }
 
 # ---------------------------------------------------------------- Hauptlauf
@@ -342,11 +536,14 @@ command_text="$(json_string_value "$payload" "command")" || exit 0
 [ -n "$command_text" ] || exit 0
 SESSION_CWD="$(json_string_value "$payload" "cwd")" || SESSION_CWD=""
 
-# In Teilbefehle zerlegen: && || ; | und Zeilenumbruch.
-split="${command_text//&&/$'\n'}"
+# Heredoc-Rümpfe sind Daten, keine Befehle. Danach in Teilbefehle zerlegen: && || ; | & und
+# Zeilenumbruch (ein einzelnes & trennt einen Hintergrundbefehl; 2>&1 ergibt harmlose Reste).
+split="$(strip_heredocs "$command_text")"
+split="${split//&&/$'\n'}"
 split="${split//||/$'\n'}"
 split="${split//;/$'\n'}"
 split="${split//|/$'\n'}"
+split="${split//&/$'\n'}"
 
 while IFS= read -r segment; do
   check_segment "$segment"

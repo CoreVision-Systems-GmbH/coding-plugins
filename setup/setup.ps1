@@ -21,7 +21,8 @@
 #
 # Was es tut — jeder Schritt wird übersprungen, wenn er schon erledigt ist:
 #   Grundausstattung: Git for Windows (mit Git Bash, die Claude Code braucht), GitHub CLI,
-#   Claude Code, KeePassXC, die Ordner ~\Code und ~\Tresor, Marketplace „corevision“ und
+#   Claude Code, gitleaks (Geheimnis-Scanner für den pre-commit-Hook der Projekte), KeePassXC,
+#   die Ordner ~\Code und ~\Tresor, Marketplace „corevision“ und
 #   Plugin coding-standard mit automatischer Aktualisierung; dazu Tailscale, VS Code mit
 #   Remote-SSH und ein SSH-Schlüssel — damit arbeitest du auf dem Dev-Server.
 #   Je Stack: Herd (PHP 8.4 mit intl, Composer, Laravel-Installer), Node LTS, Python 3.12,
@@ -73,6 +74,7 @@ $Quelle = @{
     pipx       = 'python -m pip install --user pipx; pipx install ruff; pipx install pytest'
     shellcheck = 'winget koalaman.shellcheck'
     powershell = 'Install-Module PSScriptAnalyzer -Scope CurrentUser'
+    gitleaks   = 'winget Gitleaks.Gitleaks'
 }
 $CodeDir = Join-Path $HOME 'Code'
 $TresorDir = Join-Path $HOME 'Tresor'
@@ -96,7 +98,7 @@ foreach ($eintrag in $Stack) {
 $Bausteine = @($Reihenfolge | Where-Object { $b = $_; @($gewaehlt | Where-Object { $StackBausteine[$_] -contains $b }).Count -gt 0 })
 
 if ($Liste) {
-    Write-Host 'Grundausstattung: git gh claude keepassxc ordner plugin tailscale vscode remotessh sshkey'
+    Write-Host 'Grundausstattung: git gh claude gitleaks keepassxc ordner plugin tailscale vscode remotessh sshkey'
     foreach ($b in $Bausteine) { Write-Host ('{0,-11} {1}' -f $b, $Quelle[$b]) }
     Setze-Exitcode 0
     return
@@ -220,6 +222,7 @@ function Installiere([string]$B) {
             Pfad-Auffrischen
         }
         'shellcheck' { Winget-Installieren 'koalaman.shellcheck' 'ShellCheck' }
+        'gitleaks'   { Winget-Installieren 'Gitleaks.Gitleaks' 'gitleaks' }
         'powershell' {
             Tun 'installiere PSScriptAnalyzer (Scope CurrentUser)'
             try { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null } catch {}
@@ -333,6 +336,8 @@ function Pruefen {
     foreach ($b in @('git', 'gh', 'claude')) {
         if (Vorhanden $b) { Ok "$b — $(Fassung $b @('--version'))" } else { Fehlt $b }
     }
+    # gitleaks gehört überallhin, wo committet wird: Der pre-commit-Hook der Projekte ruft ihn auf.
+    if (Vorhanden 'gitleaks') { Ok "gitleaks $(Nummer (Fassung 'gitleaks' @('version')))" } else { Fehlt 'gitleaks (Geheimnis-Scanner für den pre-commit-Hook)' }
     if (KeePassXC-Da) { Ok 'KeePassXC' } else { Fehlt 'KeePassXC' }
     if (Tailscale-Da) { Ok 'Tailscale' } else { Fehlt 'Tailscale' }
     if (Vorhanden 'code') { Ok 'VS Code' } else { Fehlt 'VS Code' }
@@ -378,6 +383,7 @@ if (-not $Check) {
         Pfad-Auffrischen
         if (-not (Vorhanden 'claude')) { Befund 'claude nach der Installation nicht im Pfad — neue PowerShell öffnen und Skript erneut starten' }
     }
+    Baustein 'gitleaks' 'gitleaks (Geheimnis-Scanner)'
     if (KeePassXC-Da) { Ok 'KeePassXC vorhanden' }
     elseif ($DryRun) { Tun 'würde installieren: KeePassXC (winget KeePassXCTeam.KeePassXC)' }
     else { Winget-Installieren 'KeePassXCTeam.KeePassXC' 'KeePassXC' }

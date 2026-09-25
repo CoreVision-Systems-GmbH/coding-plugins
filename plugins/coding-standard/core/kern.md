@@ -23,6 +23,7 @@ Was nicht verhandelbar ist (Push auf `main`, Force-Push, Secrets im Repo), setze
 ## Umsetzen
 - Nur, was beauftragt ist: keine Abstraktion für Einmal-Code, keine „Verbesserung“ fremder Zeilen. Jede geänderte Zeile führt auf ein Abnahmekriterium zurück; was außerhalb auffällt, wird genannt, nicht umgesetzt.
 - Konventionen des Repos, auch wenn du es anders machen würdest. Kürzeste klare Lösung.
+- Funktionen bleiben klein: höchstens 50 Anweisungen, zyklomatische Komplexität 10, Verschachtelung 4, Dateien 800 Zeilen — was darüber liegt, wird zerlegt, nicht kommentiert. Die Werkzeuge je Stack melden, was sie messen (ruff: Komplexität, Verzweigungen, Anweisungen; PHPMD: dazu Methoden- und Klassenlänge; ESLint: alle vier): bis Ende 2026 als Warnung, ab 2027-01-01 als Tor.
 - **Diagnose vor Reparatur.** Bei jedem Fehler zuerst die Ursache am echten Verhalten nachweisen (Log, Reproduktion, Probe), dann der Test, der sie zeigt, dann der Fix; geht der Test nicht sinnvoll, steht das Warum im PR. Ein Fix ohne Diagnose ist geraten. Nach zwei Versuchen ohne Fortschritt ist nicht die Lösung falsch, sondern die Anforderung unklar: Ansatz verwerfen, Auftrag prüfen.
 - Vor einem Umbau ohne Verhaltensänderung entsteht ein Charakterisierungstest, der das heutige Verhalten festhält; der PR belegt gleiche Eingabe → gleiches Ergebnis. Ohne diesen Beleg ist ein Refactoring nicht fertig.
 - Fehler ausdrücklich behandeln; Eingaben an Systemgrenzen validieren. Anzeige ausblenden und Bedienung sperren sind Bequemlichkeit — **nur der Server, der die Anfrage abweist, schützt.** Berechtigungen serverseitig, objektbezogen und bei Mandanten zentral am Modell.
@@ -38,6 +39,7 @@ Was nicht verhandelbar ist (Push auf `main`, Force-Push, Secrets im Repo), setze
 
 ## Beweis statt Behauptung
 - Die Projektbefehle laufen lassen: Formatter, Linter, Statik, Tests, Build. „Grün“ ist nur, was in diesem Zustand lief; Ausgabe kurz zitieren; **„nicht geprüft“ ausdrücklich benennen**.
+- Jedes Repo fasst diese Prüfungen in **einem** Befehl zusammen — je Stack einer: `composer check` (Laravel, WordPress), `npm run check` (Astro), `bash scripts/check.sh` (FastAPI, Script) —, und die `CLAUDE.md` nennt ihn als erste Zeile unter „Befehle“. Er läuft vor jedem Commit; die CI führt dieselben Schritte aus, damit lokal und dort nichts auseinanderläuft.
 - Oberflächen-Änderungen zusätzlich im Browser prüfen, mindestens den geänderten Weg.
 
 ## Arbeiten mit KI
@@ -50,8 +52,8 @@ Was nicht verhandelbar ist (Push auf `main`, Force-Push, Secrets im Repo), setze
 - Hat das Produkt selbst eine KI-Funktion, ist sie in der Oberfläche gekennzeichnet, und die eingesetzten Modelle stehen in `docs/ki-modelle.md` mit Risikoklasse und Rolle (Anbieter oder Betreiber).
 
 ## Git & Lieferung
-- Nie direkt auf `main`. Branch `feat/…`, `fix/…`, `chore/…`, `docs/…` (kebab-case, ASCII); früh ein Draft-PR mit gefüllter Vorlage; Squash-Merge nur bei grüner CI. Ein Anliegen je Commit, ein Thema je PR; über etwa 400 geänderte Zeilen wird gestapelt oder die Größe im PR begründet.
-- Conventional Commits: Typ englisch, Text deutsch; der Body erklärt das Warum und nennt die verworfene Alternative, wenn es eine gab. Kein Force-Push auf geteilte Branches.
+- Nie direkt auf `main`. Branch `feat/…`, `fix/…`, `chore/…`, `docs/…` (kebab-case, ASCII); früh ein Draft-PR mit gefüllter Vorlage — die CI prüft sie (Abnahmekriterien, Prüfweg, „Nicht geprüft“, Rückweg); Squash-Merge nur bei grüner CI. Ein Anliegen je Commit, ein Thema je PR; über etwa 400 geänderte Zeilen wird gestapelt oder die Größe im PR begründet.
+- Conventional Commits: Typ englisch, Text deutsch; der Body erklärt das Warum und nennt die verworfene Alternative, wenn es eine gab. Kein Force-Push auf geteilte Branches. Dateien mit exaktem Pfad stagen — kein `git add .`, kein `-A`: So landen `.env`, Dumps und Diagnoseskripte nicht im Repo. Prüfhooks (Geheimnis-Scanner gitleaks vor jedem Commit und in der CI) werden nicht umgangen (`--no-verify`, `core.hooksPath`): Ein Befund wird behoben, nicht übersprungen.
 - **Der PR ist die Lieferung.** Was nicht dort liegt, ist nicht geliefert — keine Archive, keine Mail, keine Kopien in privaten Konten. Code liegt in `~/Code`, nie in OneDrive, Dropbox oder iCloud.
 - Versionen `vX.Y.Z` über `/release`; Images entstehen aus dem Tag, nie `latest` in Produktion. Kundeninstanzen nur über Release + `deploy/update.sh` nach Freigabe; interne Live-Systeme zeitnah nachziehen. Vor jedem Ausrollen den Server-Stand gegen das Repo prüfen.
 - Lieferweg mit Server-Baustein: entwickelt und getestet wird auf dem Dev-Server (`deploy/dev.sh up`, `https://dev.<domain>`, nur im Tailnet); nach Abnahme PR, Merge, Release; auf den Prod-Server kommt ein Release nur per `rollout` — sofort oder zum Termin, nach Freigabe (`/rollout`). Docker auf dem eigenen Rechner nur im Notfall.

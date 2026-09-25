@@ -13,19 +13,55 @@
 # der Instanz bestimmt, welcher Stand läuft. Geändert wird dieser Wert nur
 # über deploy/update.sh — dann steht der Rückweg fest.
 #
+# Pflichtvariablen stehen mit `:?` — fehlt ein Schlüssel in der .env, startet
+# der Verbund nicht, statt mit leerem Passwort loszulaufen.
+#
 # Zum Bauen auf dem eigenen Rechner die Überlagerung dazunehmen:
 #     APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml build
 
 name: {{NAME}}
 
+# Härtung für jeden Dienst: keine Rechteausweitung, keine Capabilities (die
+# Datenbank holt sich die wenigen zurück, die ihr Start braucht), Logs rotiert
+# (5 × 20 MB je Container, sonst läuft die Platte voll). Das Wurzeldateisystem
+# ist schreibgeschützt; was ein Dienst schreibt, liegt in einem Volume oder
+# einem tmpfs — steht je Dienst dabei.
+x-haertung: &haertung
+    security_opt:
+        - no-new-privileges:true
+    cap_drop:
+        - ALL
+    logging:
+        driver: json-file
+        options:
+            max-size: '20m'
+            max-file: '5'
+
+# Schreibbare Pfade der Anwendung: Caddy-Zustand (/data, /config), PHP-Temp,
+# Laravels Zwischenspeicher und Sitzungen (storage/framework), bootstrap/cache
+# (config:cache, route:cache … beim Start; packages.php und services.php aus dem
+# Bau werden hier verdeckt und beim ersten Boot neu geschrieben — gewollt).
+# storage/logs bleibt leer — Logs gehen über LOG_CHANNEL=stderr in das
+# Docker-Protokoll. Dateien der Anwendung liegen im Volume app_storage.
+x-app-tmpfs: &app_tmpfs
+    - /tmp
+    - /data
+    - /config
+    - /app/storage/framework
+    - /app/storage/logs
+    - /app/bootstrap/cache
+
 services:
     app:
+        <<: *haertung
         image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
         container_name: {{NAME}}-app
         restart: unless-stopped
         env_file: .env
         environment:
             CONTAINER_ROLE: web
+        read_only: true
+        tmpfs: *app_tmpfs
         volumes:
             - app_storage:/app/storage/app
         networks:
@@ -45,6 +81,7 @@ services:
     # den Prozess stündlich neu starten; so gibt er Speicher zurück und holt
     # sich nach einem Update von selbst den neuen Code.
     worker:
+        <<: *haertung
         image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
         container_name: {{NAME}}-worker
         restart: unless-stopped
@@ -61,6 +98,8 @@ services:
                 '--max-time=3600',
                 '--sleep=3',
             ]
+        read_only: true
+        tmpfs: *app_tmpfs
         volumes:
             - app_storage:/app/storage/app
         networks:
@@ -78,6 +117,7 @@ services:
     # Zeitgesteuerte Arbeit. Die Taktung wird in der Anwendung gepflegt
     # (routes/console.php), nicht hier.
     scheduler:
+        <<: *haertung
         image: {{IMAGE}}:${APP_VERSION:?APP_VERSION fehlt in .env — Image-Tag der Instanz}
         container_name: {{NAME}}-scheduler
         restart: unless-stopped
@@ -85,6 +125,8 @@ services:
         environment:
             CONTAINER_ROLE: worker
         command: ['php', 'artisan', 'schedule:work']
+        read_only: true
+        tmpfs: *app_tmpfs
         volumes:
             - app_storage:/app/storage/app
         networks:
@@ -98,13 +140,26 @@ services:
                 condition: service_healthy
 
     db:
+        <<: *haertung
         image: postgres:18-alpine
         container_name: {{NAME}}-db
         restart: unless-stopped
+        # Das Postgres-Abbild startet als root, richtet das Datenverzeichnis ein
+        # und wechselt dann zu postgres — dafür braucht es genau diese fünf.
+        cap_add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - FOWNER
+            - SETGID
+            - SETUID
+        read_only: true
+        tmpfs:
+            - /tmp
+            - /run/postgresql
         environment:
-            POSTGRES_DB: ${DB_DATABASE}
-            POSTGRES_USER: ${DB_USERNAME}
-            POSTGRES_PASSWORD: ${DB_PASSWORD}
+            POSTGRES_DB: ${DB_DATABASE:?DB_DATABASE fehlt in .env}
+            POSTGRES_USER: ${DB_USERNAME:?DB_USERNAME fehlt in .env}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env — Wert aus dem Tresor}
             # Deutschsprachige Sortierung für Namen mit Umlauten.
             POSTGRES_INITDB_ARGS: '--locale-provider=icu --icu-locale=de-AT --encoding=UTF8'
         volumes:

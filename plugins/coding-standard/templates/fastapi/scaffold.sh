@@ -39,16 +39,7 @@ meldung "Abhängigkeiten installieren"
 "$PY" -m pip install --quiet --upgrade pip
 "$PY" -m pip install --quiet -r requirements-dev.txt
 
-meldung "ruff format --check ."
-"$PY" -m ruff format --check .
-
-meldung "ruff check ."
-"$PY" -m ruff check .
-
-meldung "mypy app"
-"$PY" -m mypy app
-
-meldung "pytest"
-"$PY" -m pytest -q
+meldung "scripts/check.sh (ruff, mypy, pytest)"
+bash scripts/check.sh
 
 meldung "Gerüst steht und ist grün."

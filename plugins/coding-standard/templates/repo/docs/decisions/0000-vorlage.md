@@ -41,4 +41,9 @@ entsteht eine neue ADR, und die alte bekommt oben den Status "Abgelöst durch".
 
 **Negativ:**
 
+**Lizenz neuer Abhängigkeiten:**
+<!-- Paket → Lizenz (SPDX). Erlaubt sind die Lizenzen der Allow-Liste in scripts/lizenzen-pruefen.sh;
+     Copyleft (GPL, AGPL) nur mit Ausnahme und Grund in docs/lizenzen-ausnahmen.txt. „keine“ ist eine
+     gültige Antwort. -->
+
 **Zu tun:**

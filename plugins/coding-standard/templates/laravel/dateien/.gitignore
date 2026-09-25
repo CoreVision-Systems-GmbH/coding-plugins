@@ -1,6 +1,9 @@
 /.phpunit.cache
 /bootstrap/ssr
 /node_modules
+/test-results
+/playwright-report
+/tests/e2e/ergebnis.json
 /vendor
 
 # Erzeugte Artefakte. Dieselbe Liste gehört in .dockerignore, in die Excludes

@@ -20,6 +20,7 @@
     "require-dev": {
         "dealerdirect/phpcodesniffer-composer-installer": "^1.2",
         "php-stubs/wordpress-stubs": "^7.1",
+        "phpmd/phpmd": "^2.15",
         "phpstan/phpstan": "^2.1",
         "squizlabs/php_codesniffer": "^3.13",
         "szepeviktor/phpstan-wordpress": "^2.0",
@@ -47,10 +48,14 @@
         "lint:fix": "phpcbf",
         "analyse": "phpstan analyse --memory-limit=512M --no-progress",
         "test": "@php tests/pruefe-struktur.php",
+        "komplexitaet": "bash scripts/komplexitaet-pruefen.sh",
         "check": [
             "@lint",
             "@analyse",
-            "@test"
+            "@test",
+            "@komplexitaet",
+            "bash scripts/konfig-pruefen.sh",
+            "bash scripts/lizenzen-pruefen.sh"
         ]
     }
 }

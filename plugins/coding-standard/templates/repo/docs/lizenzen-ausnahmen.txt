@@ -1,0 +1,6 @@
+# Ausnahmen für scripts/lizenzen-pruefen.sh — ein Paketname je Zeile, dahinter # und der Grund.
+# Eine Ausnahme ist eine Entscheidung (ADR: „Lizenz neuer Abhängigkeiten“), kein Handgriff:
+# Copyleft in weitergegebener Software bindet den Kunden.
+#
+# Beispiel:
+# vendor/paket   # LGPL-2.1 — wird nur dynamisch gebunden, keine Änderungen, Weitergabe intern

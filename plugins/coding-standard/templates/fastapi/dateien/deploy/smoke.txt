@@ -1,0 +1,9 @@
+# Rauchtest nach jedem Start (deploy/smoke.sh): Pfad · erwarteter Status · Zeitbudget in
+# Sekunden (mit Reserve: der Docker-Aufruf kostet 0,3 bis 1 s) · Pflichtinhalt (optional;
+# Zeichenkette, die in der Antwort stehen muss). # zählt am Zeilenanfang oder nach Leerraum.
+# Routen dazunehmen, sobald es sie gibt: der Hauptendpunkt des Dienstes, ein Aufruf mit
+# fehlender Berechtigung (401/403). Auf der Dev-Instanz ist Rot eine Warnung, beim Update
+# auf Prod ein Abbruch.
+/healthz                200  3   "status":"ok"
+/docs                   200  4   swagger
+/gibt-es-nicht          404  3

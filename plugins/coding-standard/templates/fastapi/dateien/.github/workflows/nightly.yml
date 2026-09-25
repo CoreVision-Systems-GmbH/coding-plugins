@@ -1,0 +1,59 @@
+name: nightly
+
+# Nächtliche Prüfungen, die zu lang für jeden PR sind (Kern, „Bauen ist nicht prüfen“): der
+# Mutationstest — Tests sind erst wirksam, wenn sie Änderungen am Code bemerken. Befunde sind
+# WARN mit Termin, kein Tor (`continue-on-error`): Sie stehen in `docs/status.md` unter
+# „Rückstände“. Von Hand: Actions → nightly → Run workflow.
+#
+# Sobald der Dienst eine Datenbank hat: zweiter Auftrag `betriebsdatenbank` mit einem
+# PostgreSQL-Service (Vorbild: templates/laravel/dateien/.github/workflows/nightly.yml),
+# der die Migrationen (alembic upgrade head) und die DB-nahen Tests gegen die echte
+# Datenbank fährt — der Standardlauf nutzt SQLite.
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # 02:30 UTC = 04:30 Wien im Sommer, 03:30 im Winter
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: Mutationstest (mutmut, Schwelle 60)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements-dev.txt mutmut==3.8.0
+
+      # Ziel steht in pyproject.toml ([tool.mutmut]: source_paths app, ohne Router und
+      # Einstiege). mutmut 3 kopiert die Quellen nach mutants/ und importiert von dort — ein
+      # `pythonpath` in der pytest-Konfiguration legt den Originalbaum wieder davor, deshalb
+      # fliegt die Zeile für diesen Lauf raus (Wegwerf-Checkout). Die Schwelle 60 wird aus den
+      # Ergebnissen gerechnet (`--all true`, sonst fehlen die getöteten Mutanten in der Liste):
+      # überlebende Mutanten heißen, dass die Änderung kein Test bemerkt hätte.
+      - name: mutmut
+        run: |
+          set -euo pipefail
+          sed -i '/^pythonpath = \["\."\]$/d' pyproject.toml
+          mutmut run
+          mutmut results --all true | tee mutmut.txt
+          getoetet="$(grep -c ': killed$' mutmut.txt || true)"
+          gesamt="$(grep -cE ': (killed|survived|timeout|suspicious|no tests|skipped)$' mutmut.txt || true)"
+          [ "$gesamt" -gt 0 ] || { echo "Keine Mutanten — Ziel in pyproject.toml prüfen."; exit 1; }
+          wert=$(( getoetet * 100 / gesamt ))
+          echo "Mutationswert: $wert % ($getoetet von $gesamt getötet)"
+          [ "$wert" -ge 60 ] || { echo "::warning::Mutationswert $wert % unter 60 — Tests schärfen (Rückstand mit Termin)"; exit 1; }

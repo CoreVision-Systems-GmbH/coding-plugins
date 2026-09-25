@@ -1,0 +1,11 @@
+# Rauchtest nach jedem Start (deploy/smoke.sh): Pfad · erwarteter Status · Zeitbudget in
+# Sekunden (mit Reserve: der Docker-Aufruf kostet 0,3 bis 1 s) · Pflichtinhalt (optional;
+# Zeichenkette, die in der Antwort stehen muss). # zählt am Zeilenanfang oder nach Leerraum.
+# Auf der Dev-Instanz ist Rot eine Warnung, beim Update auf Prod ein Abbruch — auch bei
+# leeren Pflichtseiten: Ohne Impressum (UID) und Datenschutzerklärung (Verantwortlicher,
+# Betroffenenrechte) geht die Site nicht online. deploy/install.sh legt beide Seiten leer an.
+/healthz                200  3   "status":"ok"
+/                       200  4   <html
+/gibt-es-nicht          404  4
+/impressum/             200  4   UID
+/datenschutz/           200  4   Verantwortlich

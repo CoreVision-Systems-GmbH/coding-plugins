@@ -26,9 +26,12 @@ Wartungsläufe, Auswertungen, Umzüge, Server-Handgriffe. Kein Dienst, kein Abbi
 ## 3. Werkzeugkette
 - Befehle aus dem Repo ermitteln (`README`, `Makefile`). Standard für neue Werkzeuge:
   `shellcheck` für `*.sh`, `ruff format` + `ruff check` und `pytest` für `*.py`,
-  `PSScriptAnalyzer` für `*.ps1`.
-- CI-Reihenfolge: shellcheck → ruff → pytest → (PSScriptAnalyzer). Was im Repo nicht
-  vorkommt, wird im Auftrag übersprungen, nicht rot gemeldet.
+  `PSScriptAnalyzer` für `*.ps1`; alles zusammen `bash scripts/check.sh` — darin auch
+  `scripts/komplexitaet-pruefen.sh` (ruff `C901`, `PLR0912`, `PLR0915`; bis Ende 2026
+  Warnung, ab 2027-01-01 Tor).
+- CI-Reihenfolge: `scripts/check.sh` (shellcheck → Shell-Tests → ruff → pytest) →
+  (PSScriptAnalyzer). Was im Repo nicht vorkommt, wird übersprungen, nicht rot gemeldet;
+  ein fehlendes Werkzeug ist dagegen rot — kein stilles Grün.
 - Getestet wird, was eine Entscheidung trifft (Auswahl, Umrechnung, Parsen). Ein Aufruf, der
   nur fremde Befehle hintereinander schaltet, belegt sich mit `--dry-run`.
 

@@ -80,6 +80,9 @@ Auswertungen KI-erzeugten Codes; die Stack-Reviewer prüfen die technischen Must
    fest verdrahten.
 2. Plan bzw. PR-Text lesen: `gh pr view --json title,body`, dazu `docs/status.md` und die
    Commit-Bodies.
+   Berührt der Diff Rechte, Schema, Mandanten, Anmeldung, Geld oder eine Kundenauslieferung,
+   muss der PR-Text ein „Prüfprotokoll“ tragen (Soll/Ist je Anforderung, Befunde, bewusst
+   nicht Getanes, Gegenprüfung, Urteil) — fehlt es, ist das ein HIGH-Befund, kein Hinweis.
 3. Diff vollständig lesen — nicht nur die Statistik. Bei jeder auffälligen Stelle die Datei
    im Umfeld öffnen, damit du den Kontext siehst und nicht die halbe Zeile bewertest.
 4. Jede Behauptung im Code verifizieren: Wird die Funktion wirklich aufgerufen? Greift die

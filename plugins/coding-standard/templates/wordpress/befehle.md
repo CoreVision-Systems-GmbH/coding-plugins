@@ -1,11 +1,11 @@
 | Zweck                                   | Befehl                                                        |
 | --------------------------------------- | ------------------------------------------------------------- |
+| Alles prüfen (Lint, Analyse, Struktur)  | `composer check`                                              |
 | Abhängigkeiten installieren             | `composer install`                                            |
 | Coding-Standards prüfen / setzen        | `composer lint` / `composer lint:fix`                         |
 | Statische Analyse (PHPStan Stufe 6)     | `composer analyse`                                            |
 | Strukturprüfung (Theme, ENV-Schema)     | `composer test`                                               |
 | Sicherheitshinweise                     | `composer audit`                                              |
-| Alles prüfen                            | `composer check`                                              |
 | Dev-Instanz (Dev-Server, mit MariaDB)   | `deploy/dev.sh up` (Protokoll: `deploy/dev.sh logs`)          |
 | wp-cli in der Dev-Instanz               | `docker compose -p {{NAME}}-dev exec app wp <befehl>`         |
 

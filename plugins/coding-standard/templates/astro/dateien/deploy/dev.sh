@@ -31,8 +31,11 @@ domain="$(sed -n 's/^APP_DOMAIN=//p' .env | head -1 | tr -d '\r' || true)"
 case "$domain" in ""|*.invalid) abbruch "APP_DOMAIN fehlt in .env (Hostname ohne https://, z. B. app.example.at)." ;; esac
 
 # Projektname und Container-Namen der Dev-Instanz sind eigene (…-dev): eigene Volumes, eigene DB.
+# DEV_BIND_IP: Tailscale-IP des Servers für Dienste, die einen Port veröffentlichen (Mailpit)
+# — nie 0.0.0.0, Docker umgeht ufw; ohne Wert bleibt es bei 127.0.0.1.
+bind_ip="$(sed -n 's/^BIND_IP=//p' /etc/corevision/server.env 2>/dev/null | head -1 || true)"
 compose() {
-    APP_VERSION=dev docker compose -p "$NAME-dev" \
+    APP_VERSION=dev DEV_BIND_IP="${bind_ip:-127.0.0.1}" docker compose -p "$NAME-dev" \
         -f compose.yaml -f compose.build.yaml -f compose.dev.yaml "$@"
 }
 edge_site() { if [ "$(id -u)" -eq 0 ]; then edge-site "$@"; else sudo edge-site "$@"; fi; }
@@ -48,6 +51,10 @@ case "${1:-}" in
             edge_site add "$domain" "$NAME-dev-app:8080"
         fi
         printf 'Dev-Instanz läuft: https://dev.%s\n' "$domain"
+        # Rauchtest (deploy/smoke.txt): hier eine Warnung, kein Abbruch — auf der Dev-Instanz
+        # wird entwickelt. Beim Update auf Prod ist dieselbe Liste ein Tor.
+        deploy/smoke.sh -p "$NAME-dev" \
+            || printf 'Rauchtest rot — beim Update auf Prod wäre das ein Abbruch (deploy/smoke.txt).\n' >&2
         ;;
     down)   compose down ;;
     logs)   compose logs -f --tail 100 ;;

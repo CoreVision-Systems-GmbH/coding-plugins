@@ -64,9 +64,13 @@ RUN chmod +x /usr/local/bin/entrypoint
 WORKDIR /app
 COPY --from=builder --chown=www-data:www-data /app /app
 
+# Die Verknüpfung public/storage entsteht beim Bau: Zur Laufzeit ist das
+# Wurzeldateisystem schreibgeschützt (compose.yaml), der Entrypoint könnte
+# sie nicht mehr anlegen.
 RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache \
-    && chmod -R 775 storage bootstrap/cache
+    && chmod -R 775 storage bootstrap/cache \
+    && php artisan storage:link
 
 ENV SERVER_NAME=:8080
 

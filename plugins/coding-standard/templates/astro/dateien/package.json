@@ -6,8 +6,10 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "check": "astro check",
-    "test": "node --test \"tests/**/*.test.mjs\""
+    "check": "npm run check:types && npm run build && npm test && bash scripts/komplexitaet-pruefen.sh && bash scripts/konfig-pruefen.sh && bash scripts/lizenzen-pruefen.sh",
+    "check:types": "astro check && tsc -p tests/e2e",
+    "test": "node --test \"tests/**/*.test.mjs\"",
+    "e2e": "playwright test --config tests/e2e/playwright.config.ts"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.4",
@@ -15,6 +17,8 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^24.0.0",
     "typescript": "^6.0.3"
   }
 }

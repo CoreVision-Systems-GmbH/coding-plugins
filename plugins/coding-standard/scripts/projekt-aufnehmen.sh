@@ -15,7 +15,8 @@
 #   1 Kontext          die gemeinsamen Dateien aus templates/repo: CLAUDE.md mit den echten
 #                      Befehlen des Repos, CHANGES.md, docs/status.md, ADR „Aufnahme in den
 #                      Firmenstandard“ mit den Lücken, PR-Vorlage, CODEOWNERS, CI-Durchsicht,
-#                      Dependabot, die .claude/rules des Stacks.
+#                      Dependabot, pre-commit-Hook mit gitleaks samt .gitleaks.toml, die
+#                      .claude/rules des Stacks.
 #   2 Lieferweg        Dockerfile, compose, deploy/, release.yml — wird nur berichtet, mit
 #                      der Vorlage als Verweis; das ist Arbeit für einen eigenen PR.
 #   3 Betriebsvertrag  Fassung im Produkt, Health, TrustProxies, Prüfbefehle — wird nur
@@ -58,7 +59,8 @@ Optionen:
 Was --apply anlegt: nur Dateien, die fehlen — .claude/settings.json, CLAUDE.md (Befehle aus
 composer.json, package.json, Makefile), CHANGES.md, LICENSE, version.txt (aus dem letzten
 Tag), .editorconfig, .gitattributes, .github/ (PR-Vorlage, CODEOWNERS, claude-review.yml,
-dependabot.yml), docs/status.md und die ADR „Aufnahme in den Firmenstandard“ mit den
+dependabot.yml), .githooks/pre-commit mit .gitleaks.toml (gitleaks vor jedem Commit; setzt
+dazu core.hooksPath), docs/status.md und die ADR „Aufnahme in den Firmenstandard“ mit den
 Lücken, die .claude/rules des Stacks, bei Stacks ohne Markerdatei .coding-standard.
 Nie: Dockerfile, compose, deploy/, release.yml, Code. Das sind Stufe 2 und 3, eigene PRs.
 EOF
@@ -254,6 +256,20 @@ if [ -n "$STACK" ] && [ "$MARKER" = "1" ]; then
 fi
 
 meldung "Stufe 1 — Kontext (gemeinsame Dateien aus templates/repo)"
+# Die Erlaubnis- und Sperrliste der Sessions steht in derselben Datei wie die Erklärung;
+# eine ältere settings.json hat sie nicht, wird aber nicht überschrieben — deshalb eigene
+# Zeile, und der Punkt wandert trotz Stufe 1 in die Lückenliste (ADR, status.md): --apply
+# kann ihn nicht schließen, jemand muss die Liste von Hand übernehmen.
+if [ -f "$DIR/.claude/settings.json" ]; then
+    if grep -q '"permissions"' "$DIR/.claude/settings.json"; then
+        pruefe 1 0 ".claude/settings.json: permissions (Erlaubnis- und Sperrliste für Sessions — .env, Tresor, Datenbanklöscher)"
+    else
+        pruefe 1 1 ".claude/settings.json: permissions (Erlaubnis- und Sperrliste für Sessions — .env, Tresor, Datenbanklöscher)" \
+            "templates/repo/.claude/settings.json"
+        LUECKEN="$LUECKEN
+- Stufe 1: .claude/settings.json ohne \`permissions\` — Erlaubnis- und Sperrliste aus \`templates/repo/.claude/settings.json\` von Hand übernehmen (die Datei wird nicht überschrieben)"
+    fi
+fi
 while IFS= read -r rel; do
     case "$rel" in
         docs/decisions/0001-projektstart.md) continue ;;   # für Bestand: ADR „Aufnahme“
@@ -293,7 +309,7 @@ fi
 meldung "Stufe 2 — Lieferweg$([ "$CONTAINERIZED" = "1" ] && echo ' (Abbild aus dem Tag, Ausrollen per deploy/)' || echo ' (CI und Release)')"
 lieferweg=".github/workflows/tests.yml"
 if [ "$CONTAINERIZED" = "1" ]; then
-    lieferweg="$lieferweg Dockerfile compose.yaml compose.build.yaml .env.example deploy/install.sh deploy/update.sh deploy/backup.sh scripts/release-notes.sh .github/workflows/release.yml"
+    lieferweg="$lieferweg Dockerfile compose.yaml compose.build.yaml .env.example deploy/install.sh deploy/update.sh deploy/backup.sh deploy/smoke.sh deploy/smoke.txt scripts/release-notes.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh .github/workflows/release.yml"
 fi
 for rel in $lieferweg; do
     verweis=""
@@ -304,6 +320,16 @@ done
 if [ -f "$DIR/.github/workflows/tests.yml" ]; then
     pruefe 2 "$(grep -qE '^[[:space:]]+ci:[[:space:]]*$' "$DIR/.github/workflows/tests.yml" && echo 0 || echo 1)" \
         "tests.yml: Auftrag heißt „ci“ (Pflicht-Check des Rulesets)"
+    case "$STACK" in laravel|fastapi)
+        pruefe 2 "$(grep -q 'diff-cover' "$DIR/.github/workflows/tests.yml" && echo 0 || echo 1)" \
+            "tests.yml: Schritt „Diff-Abdeckung“ (diff-cover, 80 % der geänderten Zeilen)" "templates/$STACK/dateien/.github/workflows/tests.yml"
+        pruefe 2 "$([ -f "$DIR/.github/workflows/nightly.yml" ] && echo 0 || echo 1)" \
+            "nightly.yml: Mutationstest (Laravel: dazu Suite gegen die Betriebs-Datenbank)" "templates/$STACK/dateien/.github/workflows/nightly.yml"
+        ;;
+    esac
+
+    pruefe 2 "$(grep -q 'pr-text-pruefen' "$DIR/.github/workflows/tests.yml" && echo 0 || echo 1)" \
+        "tests.yml: Schritt „PR-Text prüfen“ (scripts/pr-text-pruefen.sh)" "${STACK:+templates/$STACK/dateien/.github/workflows/tests.yml}"
 fi
 
 meldung "Stufe 3 — Betriebsvertrag$([ -n "$STACK" ] && echo " (stacks/$STACK.md, Abschnitt 4)" || echo ' (ohne Stack: nur Kern)')"
@@ -311,31 +337,39 @@ case "$STACK" in
     laravel)
         pruefe 3 "$(hat config/app.php "'version'" && echo 0 || echo 1)" "Fassung im Produkt: config/app.php liest APP_IMAGE_VERSION ('version')"
         pruefe 3 "$(hat bootstrap/app.php 'trustProxies' && echo 0 || echo 1)" "TrustProxies hinter dem Edge-Caddy (bootstrap/app.php)"
-        for s in ci:setup ci:check lint lint:check types:check test; do
+        for s in check ci:setup ci:check lint lint:check types:check test; do
             pruefe 3 "$(hat composer.json "\"$s\"[[:space:]]*:" && echo 0 || echo 1)" "composer.json: Script „$s“"
         done
         pruefe 3 "$([ -f "$DIR/phpstan.neon" ] && echo 0 || echo 1)" "Larastan (phpstan.neon; Bestand Stufe 7, neu Stufe 8)"
+        pruefe 3 "$(hat pint.json 'declare_strict_types' && echo 0 || echo 1)" "pint.json: declare_strict_types und Imports" "templates/laravel/dateien/pint.json"
+        pruefe 3 "$([ -f "$DIR/phpmd.xml" ] && [ -f "$DIR/scripts/komplexitaet-pruefen.sh" ] && echo 0 || echo 1)" "Kennzahlen je Funktion (phpmd.xml, scripts/komplexitaet-pruefen.sh)" "templates/laravel/dateien/phpmd.xml"
         pruefe 3 "$([ -f "$DIR/tests/Feature/AppVersionTest.php" ] && echo 0 || echo 1)" "AppVersionTest: Fassung auf beiden Oberflächen sichtbar"
         pruefe 3 "$(hat .env.example '^APP_VERSION=' && echo 0 || echo 1)" ".env.example: APP_VERSION (Image-Tag der Instanz)"
         pruefe 3 "$(hat .env.example '^APP_TIMEZONE=' && echo 0 || echo 1)" ".env.example: APP_TIMEZONE (nie hart UTC)"
         pruefe 3 "$(hat compose.yaml '/up' && echo 0 || echo 1)" "compose.yaml: Healthcheck auf /up"
+        pruefe 3 "$(hat compose.yaml 'read_only' && hat compose.yaml 'cap_drop' && hat compose.yaml 'no-new-privileges' && hat compose.yaml 'max-size' && echo 0 || echo 1)" "compose.yaml: Härtung (read_only, cap_drop, no-new-privileges, Log-Rotation)" "templates/$STACK/dateien/compose.yaml"
         ;;
     fastapi)
         pruefe 3 "$([ -f "$DIR/app/settings.py" ] && echo 0 || echo 1)" "Konfiguration an einer Stelle (app/settings.py)"
         pruefe 3 "$(grep -rqs 'healthz' "$DIR/app" && echo 0 || echo 1)" "GET /healthz mit Fassung"
         pruefe 3 "$(hat Dockerfile 'proxy-headers' && echo 0 || echo 1)" "Uvicorn mit --proxy-headers hinter dem Edge-Caddy (Dockerfile)"
         pruefe 3 "$( { hat pyproject.toml 'ruff' || hat requirements-dev.txt 'ruff'; } && echo 0 || echo 1)" "ruff (Format und Lint)"
+        pruefe 3 "$([ -f "$DIR/scripts/komplexitaet-pruefen.sh" ] && echo 0 || echo 1)" "Kennzahlen je Funktion (scripts/komplexitaet-pruefen.sh, ruff C901/PLR0912/PLR0915)" "templates/fastapi/dateien/scripts/komplexitaet-pruefen.sh"
+        pruefe 3 "$([ -f "$DIR/scripts/check.sh" ] && echo 0 || echo 1)" "Ein Prüfbefehl für alles (scripts/check.sh)" "templates/fastapi/dateien/scripts/check.sh"
         pruefe 3 "$(hat .env.example '^APP_VERSION=' && echo 0 || echo 1)" ".env.example: APP_VERSION (Image-Tag der Instanz)"
         pruefe 3 "$(hat compose.yaml '/healthz' && echo 0 || echo 1)" "compose.yaml: Healthcheck auf /healthz"
+        pruefe 3 "$(hat compose.yaml 'read_only' && hat compose.yaml 'cap_drop' && hat compose.yaml 'no-new-privileges' && hat compose.yaml 'max-size' && echo 0 || echo 1)" "compose.yaml: Härtung (read_only, cap_drop, no-new-privileges, Log-Rotation)" "templates/$STACK/dateien/compose.yaml"
         ;;
     astro)
         pruefe 3 "$(hat astro.config.mjs 'site:' && echo 0 || echo 1)" "astro.config.mjs: site gesetzt (Canonical, Sitemap)"
         pruefe 3 "$( { [ -f "$DIR/astro.config.mjs" ] && ! grep -q '\.invalid' "$DIR/astro.config.mjs"; } && echo 0 || echo 1)" "astro.config.mjs: site zeigt nicht auf eine Platzhalter-Domain"
-        for s in check build test; do
+        # check:types belegt, dass `check` mehr ist als der reine Typcheck (Typen, Bau, Tests).
+        for s in check check:types build test; do
             pruefe 3 "$(hat package.json "\"$s\"[[:space:]]*:" && echo 0 || echo 1)" "package.json: Script „$s“"
         done
         pruefe 3 "$([ -d "$DIR/tests" ] && echo 0 || echo 1)" "tests/ gegen dist/"
         pruefe 3 "$(hat docker/Caddyfile '/healthz' && echo 0 || echo 1)" "Caddyfile: /healthz mit Fassung"
+        pruefe 3 "$(hat compose.yaml 'read_only' && hat compose.yaml 'cap_drop' && hat compose.yaml 'no-new-privileges' && hat compose.yaml 'max-size' && echo 0 || echo 1)" "compose.yaml: Härtung (read_only, cap_drop, no-new-privileges, Log-Rotation)" "templates/$STACK/dateien/compose.yaml"
         ;;
     wordpress)
         pruefe 3 "$([ -f "$DIR/config/application.php" ] && echo 0 || echo 1)" "Konfiguration aus ENV (config/application.php, Bedrock-Layout)"
@@ -344,14 +378,18 @@ case "$STACK" in
         pruefe 3 "$([ -f "$DIR/wp-cli.yml" ] && echo 0 || echo 1)" "wp-cli.yml (path: web/wp)"
         pruefe 3 "$([ -f "$DIR/phpcs.xml" ] && echo 0 || echo 1)" "PHPCS mit WordPress-Coding-Standards (phpcs.xml)"
         pruefe 3 "$([ -f "$DIR/phpstan.neon" ] && echo 0 || echo 1)" "PHPStan mit WordPress-Stubs (phpstan.neon)"
+        pruefe 3 "$([ -f "$DIR/phpmd.xml" ] && [ -f "$DIR/scripts/komplexitaet-pruefen.sh" ] && echo 0 || echo 1)" "Kennzahlen je Funktion (phpmd.xml, scripts/komplexitaet-pruefen.sh)" "templates/wordpress/dateien/phpmd.xml"
         for s in lint analyse test check; do
             pruefe 3 "$(hat composer.json "\"$s\"[[:space:]]*:" && echo 0 || echo 1)" "composer.json: Script „$s“"
         done
         pruefe 3 "$(hat compose.yaml '/healthz' && echo 0 || echo 1)" "compose.yaml: Healthcheck auf /healthz"
+        pruefe 3 "$(hat compose.yaml 'read_only' && hat compose.yaml 'cap_drop' && hat compose.yaml 'no-new-privileges' && hat compose.yaml 'max-size' && echo 0 || echo 1)" "compose.yaml: Härtung (read_only, cap_drop, no-new-privileges, Log-Rotation)" "templates/$STACK/dateien/compose.yaml"
         ;;
     script)
         pruefe 3 "$([ -n "$(ls "$DIR"/scripts/*.sh "$DIR"/scripts/*.py "$DIR"/scripts/*.ps1 2>/dev/null)" ] && echo 0 || echo 1)" "Werkzeuge unter scripts/ (ein Skript, eine Aufgabe, --help und --dry-run)"
         pruefe 3 "$([ -d "$DIR/tests" ] && [ -n "$(ls -A "$DIR/tests" 2>/dev/null)" ] && echo 0 || echo 1)" "tests/ mit mindestens einer Prüfung"
+        pruefe 3 "$([ -f "$DIR/scripts/komplexitaet-pruefen.sh" ] && echo 0 || echo 1)" "Kennzahlen je Funktion (scripts/komplexitaet-pruefen.sh)" "templates/script/dateien/scripts/komplexitaet-pruefen.sh"
+        pruefe 3 "$([ -f "$DIR/scripts/check.sh" ] && echo 0 || echo 1)" "Ein Prüfbefehl für alles (scripts/check.sh)" "templates/script/dateien/scripts/check.sh"
         ;;
     "")
         zeile "kein Stack — Betriebsvertrag nicht prüfbar; Kern-Regeln gelten trotzdem"
@@ -519,6 +557,29 @@ while IFS= read -r datei; do
   $datei"
 done < "$liste"
 [ -z "$rest" ] || abbruch "Unersetzte Platzhalter in:$rest"
+
+# Prüfhooks aktivieren (gitleaks vor jedem Commit). core.hooksPath ist lokale Konfiguration,
+# das Setzen ist idempotent. Das Ausführbar-Bit muss in den Index (Windows: core.fileMode=false,
+# und ohne Bit liefe der Hook auf Linux und macOS nicht) — deshalb wird der Hook als einzige
+# Datei schon vorgemerkt, und nur, wenn dieser Lauf ihn angelegt hat. Der Commit bleibt beim
+# Menschen.
+if [ -f "$DIR/.githooks/pre-commit" ]; then
+    if grep -qxF "$DIR/.githooks/pre-commit" "$liste"; then
+        git -C "$DIR" add --chmod=+x .githooks/pre-commit
+    fi
+    # Ein bestehender Hook-Ordner (Husky, lint-staged, eigene Hooks in .git/hooks) wird nicht
+    # stillschweigend abgeschaltet: Dann bleibt die Einstellung, und der gitleaks-Aufruf aus
+    # .githooks/pre-commit gehört dort hinein — ein Handgriff, der im Bericht steht.
+    alt="$(git -C "$DIR" config core.hooksPath 2>/dev/null || true)"
+    if [ -n "$alt" ] && [ "$alt" != ".githooks" ]; then
+        zeile "Git-Hooks: core.hooksPath bleibt auf '$alt' — den gitleaks-Aufruf aus .githooks/pre-commit dort ergänzen (Handgriff)"
+    elif [ -z "$alt" ] && [ -x "$DIR/.git/hooks/pre-commit" ]; then
+        zeile "Git-Hooks: .git/hooks/pre-commit besteht — core.hooksPath nicht gesetzt; den gitleaks-Aufruf aus .githooks/pre-commit dort ergänzen (Handgriff)"
+    else
+        git -C "$DIR" config core.hooksPath .githooks
+        zeile "Git-Hooks: core.hooksPath = .githooks (gitleaks vor jedem Commit)"
+    fi
+fi
 
 zeile "$angelegt Datei(en) angelegt, keine bestehende geändert."
 

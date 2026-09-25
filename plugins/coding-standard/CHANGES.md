@@ -7,6 +7,156 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.0.0] — 2026-09-25
+
+### Hinzugefügt
+
+- **Kennzahlen je Funktion** (`scripts/komplexitaet-pruefen.sh` in allen fünf Stacks, Teil von
+  `check` und der CI): Komplexität ≤ 10, ≤ 50 Anweisungen, ≤ 12 Verzweigungen — ruff (`C901`,
+  `PLR0912`, `PLR0915`), PHPMD (`phpmd.xml`, neu in Laravel und WordPress, dazu Methoden- und
+  Klassenlänge), ESLint, wo es im Repo liegt (dazu Verschachtelung ≤ 4, Datei ≤ 800 Zeilen).
+  Bis Ende 2026 eine Warnung, ab 2027-01-01 rot. Der Kern nennt die Zahlen.
+- **Laravel:** `pint.json` mit `declare_strict_types` und Import-Regeln, `rector.php` mit
+  monatlichem Probelauf (`monatlich.yml`, zeigt nur an), `php artisan view:cache` in `check`
+  (übersetzt jede Blade-Vorlage), `phpunit.xml` nagelt die Suite mit `force="true"` auf SQLite
+  fest — alles über die Nacharbeit-Checkliste von `/projekt-neu`.
+- **Testregeln** (`tests.md` aller Stacks): Kreuzprobe bei Mandanten (Abweisung, nicht leere
+  Liste; Filter zentral am Modell), synthetische Testdaten (`de_AT`, `example.org`, nie ein
+  Produktionsauszug), Regressionsliste mit Vorfall und Fassung im Testnamen, Grenzwerte selbst
+  testen. `/projekt-aufnehmen`: Statik im Bestand über eine datierte Baseline mit Abbauplan —
+  jede angefasste Datei verlässt sie; neuer Code läuft nie gegen die Baseline.
+
+- **Konfigurations- und Lizenzprüfung** in allen Container-Stacks (`scripts/konfig-pruefen.sh`,
+  `scripts/lizenzen-pruefen.sh`), Teil von `check` und der CI: Geheimnisse haben in `.env.example`
+  keinen Wert, Debug ist aus, production ist die Vorgabe, im öffentlichen Ordner liegt nur
+  `index.php`, keine Debug-Werkzeuge in `require`, nichts Vertrauliches im Repo; Lizenzen der
+  ausgelieferten Abhängigkeiten gegen eine Allow-Liste — Copyleft ist ein Befund (WordPress darf
+  GPL), LGPL/MPL und Unbekanntes eine Warnung, Ausnahmen mit Grund in
+  `docs/lizenzen-ausnahmen.txt`. `deploy/update.sh` bricht ab, wenn die `.env` der Instanz nicht
+  production/Debug aus trägt. Die ADR-Vorlage fragt nach der Lizenz neuer Abhängigkeiten;
+  `/projekt-aufnehmen` meldet fehlende Skripte.
+
+- **Diff-Abdeckung und Nachtprüfung** (Laravel, FastAPI): Die CI misst bei jedem PR die
+  Abdeckung der neuen und geänderten Zeilen (diff-cover, Schwelle 80 %) — bis Ende 2026
+  eine Warnung, ab 2027-01-01 rot; der Bestand wird nicht gemessen. `nightly.yml` fährt den
+  Mutationstest (`pest --mutate` bzw. `mutmut`, Schwelle 60) und bei Laravel Wanderungen und
+  Suite gegen PostgreSQL 18 (der Standardlauf bleibt SQLite im Speicher); Befunde sind WARN
+  mit Termin in `docs/status.md`, kein Tor. `/projekt-aufnehmen` meldet beides, wenn es fehlt.
+
+- **Browser-Prüfung mit Playwright** (`tests/e2e/` in den Vorlagen Laravel und Astro, Script
+  `npm run e2e`): drei Viewports (Desktop, Tablet, Handy), `smoke.spec.ts` liest dieselbe Liste
+  wie der Rauchtest (`deploy/smoke.txt`) und prüft dazu Konsolenfehler und gescheiterte
+  Anfragen, `sweep.spec.ts` folgt jedem internen Link der Startseite; `retries: 0`, nachts
+  `E2E_REPEAT=2` zur Flaky-Erkennung, JSON-Ergebnis. Läuft gegen die Dev-Instanz aus dem
+  Tailnet, nicht in der GitHub-CI. Regeln in `.claude/rules/tests.md` (Astro neu, Laravel
+  ergänzt); Laravel bekommt Paket und Script über die Nacharbeit-Checkliste.
+
+- **Die CI prüft den PR-Text** (`scripts/pr-text-pruefen.sh`, Schritt „PR-Text prüfen“ im
+  Auftrag `ci` aller Stacks und dieses Repos): Abnahmekriterien mit Nachweis, ein Prüfweg mit
+  Ergebnis, „Nicht geprüft“ und „Rückweg“ müssen gefüllt sein — sonst ist der PR rot. Der
+  Schritt liest den aktuellen Text über `gh`; ein erneuter Lauf nach einer Textänderung zählt.
+  Dependabot ist ausgenommen. `/projekt-neu` liefert Prüfer und Schritt mit, `/projekt-aufnehmen`
+  meldet den fehlenden Schritt. Lokal: `gh pr view <nr> --json body -q .body | bash
+  scripts/pr-text-pruefen.sh`.
+- **Prüfprotokoll in der PR-Vorlage** — Pflicht bei Rechten, Schema, Mandanten, Anmeldung,
+  Geld oder Kundenauslieferung: Soll/Ist je Anforderung mit Beleg, Befunde mit Schwere und
+  Frist, bewusst nicht Getanes, Gegenprüfung, Urteil FREIGEGEBEN / BEDINGT / GESPERRT. `/pr`
+  füllt es, der `reviewer` verlangt es auf diesen Pfaden.
+
+- **Rauchtest nach jedem Start** (`deploy/smoke.txt` + `deploy/smoke.sh` in allen vier
+  Container-Stacks): Routen mit erwartetem Status, Zeitbudget und Pflichtinhalt. `deploy/dev.sh
+  up` warnt bei Rot, `deploy/update.sh` bricht mit Rückweg ab. Impressum (UID) und Datenschutz
+  (Verantwortlicher) stehen bei Astro und WordPress in der Liste — leer geht die Site nicht
+  online; das Astro-Gerüst liefert beide Seiten als Platzhalter. `/projekt-aufnehmen` meldet
+  fehlende Rauchtest-Dateien.
+- **Mailpit in der Laravel-Dev-Instanz** (`compose.dev.yaml`, Dienst `mail`): jede Mail landet
+  dort, keine bei echten Empfängern; Oberfläche auf Port 8025 der Tailscale-IP des Dev-Servers
+  (`DEV_BIND_IP` aus `server.env`, sonst 127.0.0.1 — nie 0.0.0.0, Docker umgeht ufw).
+- **Datenjobs** als Abschnitt 6 in den Overlays Laravel und FastAPI: Trockenlauf als Vorgabe,
+  `--apply` schreibt, idempotent, Mengenabgleich vorher/nachher, `--check` mit Exit ≠ 0 bei
+  Drift, Blöcke mit Wiederaufnahme. Der `database-reviewer` verlangt es seit 0.10.0.
+- **Einwilligung nur, wenn es etwas einzuwilligen gibt** (Overlays Astro und WordPress): kein
+  Consent-Banner ohne Tracker; mit Trackern lädt nichts vor dem Opt-in.
+
+- **Ein Prüfbefehl je Stack:** `composer check` (Laravel, WordPress), `npm run check` (Astro:
+  Typen, Bau, Tests) und `bash scripts/check.sh` (FastAPI, Script). Die `CLAUDE.md` neuer
+  Projekte nennt ihn als erste Zeile unter „Befehle“, die CI führt dieselben Schritte aus;
+  `/projekt-aufnehmen` meldet, wenn er in einem bestehenden Repo fehlt. Der Kern verlangt ihn
+  vor jedem Commit.
+
+- **Geheimnis-Scanner gitleaks** auf drei Ebenen, damit Zugangsdaten nicht ins Repo kommen
+  (Fehlermuster H):
+  - **CI:** Der Schritt „Geheimnisse (gitleaks)“ in `tests.yml` aller Stacks prüft direkt
+    nach dem Checkout den Arbeitsbaum und bei einem PR jeden einzelnen Commit — gitleaks
+    8.30.1 als Binary mit Prüfsumme aus dem Release, keine Marketplace-Action (die verlangt
+    für Organisationen eine Lizenz). Jeder Treffer ist FAIL.
+  - **Vor jedem Commit:** Der Hook `.githooks/pre-commit` prüft die vorgemerkten Änderungen.
+    `/projekt-neu` und `/projekt-aufnehmen` legen ihn an, setzen `git config core.hooksPath
+    .githooks` und das Ausführbar-Bit im Index. Fehlt gitleaks auf dem Gerät, warnt der Hook
+    nur und lässt durch — die CI prüft trotzdem. Ein Befund wird behoben oder in
+    `.gitleaks.toml` mit Grund erlaubt; `--no-verify` blockt der Git-Guard.
+  - **Regeln in `.gitleaks.toml`:** die eingebauten Regeln von gitleaks plus zwei eigene, nur
+    unter `tests/`: IBAN und E-Mail-Adressen mit echter Domäne (Testdaten sind synthetisch).
+    Erlaubt sind `.env.example`, Platzhalter wie `<token>` und die Beispieldomänen
+    `example.org`, `example.com`, `example.net`, `example.invalid`.
+  - **Einrichtung:** gitleaks gehört zur Grundausstattung von `setup.sh` und `setup.ps1`
+    (winget `Gitleaks.Gitleaks`, Homebrew, unter Linux das Binary 8.30.1 mit Prüfsumme nach
+    `~/.local/bin`); `--check` meldet ihn, wenn er fehlt — auch auf dem Dev-Server.
+
+  Bestehende Projekte: `.githooks/pre-commit` und `.gitleaks.toml` aus `templates/repo` sowie
+  den CI-Schritt aus `templates/<stack>/dateien/.github/workflows/tests.yml` übernehmen, dann
+  `git config core.hooksPath .githooks` — einmal je Klon, denn die Einstellung reist nicht mit.
+
+- **Erlaubnis- und Sperrliste für Claude-Sessions** in der `.claude/settings.json` neuer
+  Projekte (`permissions`): Die Prüfbefehle des Stacks (`composer check`, `npm run check`,
+  `ruff`, `pytest`, `make check`, `git status|diff|log` …) laufen ohne Nachfrage. Gesperrt ist
+  für das Read-Tool (und damit Edit, Write, Grep, Glob) das Lesen von `.env` samt `.env.local`,
+  `.env.backup`, `.env.testing` und Co. in jeder Tiefe (`.env.example` bleibt frei — es ist
+  das Schema), von `~/.ssh`, Tresor-Dateien (`*.kdbx`), privaten Schlüsseln und Dumps; für das
+  Bash-Tool `git diff --no-index` (gäbe eine `.env` aus) und die Datenbanklöscher
+  (`migrate:fresh|refresh|reset`, `db:wipe`, `alembic downgrade base`, `wp db reset|drop|clean`,
+  dieselbe Liste wie im Git-Guard). `cat .env` im Bash-Tool bleibt eine Nachfrage — die Liste
+  ist ein Geländer für die Werkzeuge, kein Ersatz für die Datenregel des Kerns.
+  `/projekt-aufnehmen` meldet eine `settings.json` ohne `permissions` als Lücke und trägt sie
+  in ADR und `docs/status.md` ein (die Datei wird nie überschrieben — die Liste aus
+  `templates/repo/.claude/settings.json` von Hand übernehmen).
+
+- **Sofortprüfung nach jedem Edit** (`hooks/edit-check.sh`, PostToolUse auf Edit, Write und
+  MultiEdit): Die geänderte Datei wird auf Syntax und Format geprüft — `php -l` und Pint,
+  `ruff check`/`ruff format --check`, `bash -n` und shellcheck, `node --check` und ESLint,
+  JSON — und Befunde kommen als Zusatzkontext zurück, in Sekunden statt erst beim nächsten
+  `check`. Der Hook ändert nichts und bricht nichts ab; er läuft nur in erklärten Repos und
+  nur mit Werkzeugen, die im Repo oder im PATH vorhanden sind. Notausgang wie beim
+  SessionStart-Hook: `CODING_STANDARD_OFF=1`.
+
+### Geändert
+
+- **Verbünde gehärtet** (`compose.yaml` aller vier Container-Stacks): Wurzeldateisystem
+  schreibgeschützt (`read_only`, Schreibpfade als Volume oder tmpfs), `cap_drop: ALL` (Postgres
+  und MariaDB holen sich die fünf zurück, die ihr Start braucht), `no-new-privileges`,
+  Log-Rotation 5 × 20 MB je Container, Pflichtvariablen mit `:?` — fehlt `DB_PASSWORD` in der
+  `.env`, startet der Verbund nicht, statt mit leerem Passwort loszulaufen. Laravel: Logs über
+  `LOG_CHANNEL=stderr`, `public/storage` entsteht beim Bau des Abbilds. `/deploy-check` prüft
+  die Härtung der laufenden Container (Punkt g), `/projekt-aufnehmen` meldet eine `compose.yaml`
+  ohne Härtung. Bestehende Projekte übernehmen die `compose.yaml` aus `templates/<stack>/dateien`
+  — beim nächsten Update, nach einem Probelauf auf der Dev-Instanz. Geheimnisse als Dateien
+  (`*_FILE`, Compose `secrets:`) folgen, sobald eine Instanz zum Prüfen läuft.
+- **Der Git-Guard blockiert mehr** — deshalb wird die nächste Fassung 1.0.0:
+  - `git add` ohne Pfadangabe (`.`, `-A`, `--all`, `-u`, `:/`) — Dateien werden mit exaktem
+    Pfad gestagt, damit `.env`, Dumps und Diagnoseskripte nicht im Repo landen (Fehlermuster
+    F und H). `git commit -a` bleibt erlaubt: es nimmt nur bereits verfolgte Dateien mit. In
+    Repos mit der Markerdatei `.git-guard-main-ok` (Doku, Backup) bleibt `git add -A` erlaubt.
+  - `git commit --no-verify` / `-n`, `git push --no-verify`, das Setzen, Umbiegen oder
+    Entfernen von `core.hooksPath` (auch `git config set|unset`, `-f <datei>`, `git -c`) —
+    die Prüfhooks des Repos gelten; erlaubt bleiben das Lesen des Werts und
+    `git config core.hooksPath .githooks`.
+  - Datenbanklöscher: `php artisan migrate:fresh|refresh|reset`, `db:wipe`,
+    `alembic downgrade base`, `wp db reset|drop|clean` — auch hinter `docker compose exec`,
+    `uv run` oder `php -d …`. Nur der Nutzer führt sie aus, nach Blick auf die Datenbank-URL.
+  Der Hook liest Anführungszeichen und Heredocs mit: `--no-verify` in einem Commit-Text oder
+  `git add .` im Rumpf einer Commit-Nachricht sind Daten, kein Befehl.
+  Der Kern nennt die beiden Git-Regeln unter „Git & Lieferung“.
+
 ## [0.10.0] — 2026-09-25
 
 ### Hinzugefügt

@@ -28,6 +28,12 @@ neu="${1#v}"
 
 [ -f .env ] || abbruch "Die .env fehlt."
 
+# Sichere Konfiguration der Instanz: Debug aus — Debug-Ausgabe liefert Stacktraces samt
+# Geheimnissen an jeden Aufrufer.
+# Der letzte Eintrag gilt (so lesen es compose und dotenv), die Form „export KEY=“ ebenso.
+app_debug="$(sed -n 's/^\(export \)\{0,1\}{{ENV_PREFIX}}DEBUG=//p' .env | tail -n 1 | tr -d '\r"')"
+case "$app_debug" in false|0|False|'') ;; *) abbruch "{{ENV_PREFIX}}DEBUG=$app_debug — auf diesem Server muss false stehen." ;; esac
+
 alt="$(sed -n 's/^APP_VERSION=//p' .env | head -n 1 | tr -d '\r')"
 [ -n "$alt" ] || abbruch "In der .env steht kein APP_VERSION — Rückweg wäre unbekannt."
 
@@ -80,6 +86,11 @@ case "$antwort" in
         rueckweg
         ;;
 esac
+
+# Rauchtest: die Routen aus deploy/smoke.txt mit Status, Zeitbudget und Pflichtinhalt.
+# Rot heißt: Die neue Fassung läuft, aber nicht richtig — Rückweg wie bei jedem Fehler.
+meldung "Rauchtest (deploy/smoke.txt)"
+deploy/smoke.sh || rueckweg
 
 meldung "Fertig — es läuft Fassung ${neu}"
 if [ -n "$sicherung" ]; then

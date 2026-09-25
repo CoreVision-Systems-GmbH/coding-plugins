@@ -13,6 +13,15 @@ select = ["E", "F", "I", "UP", "B", "SIM", "S", "RUF"]
 # In Tests sind assert-Anweisungen der Zweck der Übung.
 "tests/**" = ["S101"]
 
+# Kennzahlen je Funktion (scripts/komplexitaet-pruefen.sh: C901, PLR0912, PLR0915) — bis Ende
+# 2026 eine Warnung, ab 2027-01-01 ein Tor. Eine Funktion, die hier anschlägt, wird zerlegt.
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-branches = 12
+max-statements = 50
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

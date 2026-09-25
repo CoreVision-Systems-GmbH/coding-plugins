@@ -8,9 +8,12 @@ on:
     branches:
       - main
   pull_request:
+    # ready_for_review: der PR-Text zählt spätestens, wenn der Draft fertig ist.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
+  pull-requests: read   # Schritt „PR-Text prüfen“ liest den PR-Text
 
 jobs:
   ci:
@@ -21,14 +24,64 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Volle Historie samt aller Zweige: gitleaks prüft bei einem PR die Spanne
+          # origin/<basiszweig>..HEAD. Ein flacher Checkout kennt weder den Basiszweig noch
+          # die Kette der PR-Commits — und ein späteres git fetch käme ohne Anmeldedaten
+          # (persist-credentials: false) in ein privates Repo nicht hinein.
+          fetch-depth: 0
+
+      # Geheimnisse vor allem anderen: Zugangsdaten gehören nie ins Repo (Fehlermuster H).
+      # Binary statt Marketplace-Action: gitleaks/gitleaks-action verlangt für Organisationen
+      # eine Lizenz, das Binary nicht. Feste Fassung, Prüfsumme hier festgenagelt statt aus dem
+      # Download (wer das Release tauscht, tauscht auch dessen Prüfsummendatei): Die Prüfung
+      # ändert sich nicht über Nacht, ein vertauschtes Binary fällt auf. Beim
+      # Anheben zuerst lokal prüfen (gitleaks dir .). Beide Läufe lesen .gitleaks.toml aus dem
+      # Wurzelverzeichnis von selbst; jeder Treffer ist FAIL.
+      - name: Geheimnisse (gitleaks)
+        env:
+          GITLEAKS_FASSUNG: 8.30.1
+          # aus gitleaks_8.30.1_checksums.txt — hier festgenagelt, beim Anheben mitziehen
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          BASISZWEIG: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          quelle="https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_FASSUNG"
+          datei="gitleaks_${GITLEAKS_FASSUNG}_linux_x64.tar.gz"
+          ziel="$RUNNER_TEMP/gitleaks"
+          mkdir -p "$ziel"
+          curl -fsSL "$quelle/$datei" -o "$ziel/$datei"
+          echo "$GITLEAKS_SHA256  $ziel/$datei" | sha256sum -c -
+          tar -xzf "$ziel/$datei" -C "$ziel" gitleaks
+          # Arbeitsbaum: was jetzt im Repo liegt.
+          "$ziel/gitleaks" dir . --no-banner --redact --exit-code 1
+          # PR: dazu jeder einzelne Commit — ein Geheimnis, das der letzte Commit wieder
+          # entfernt hat, steht sonst trotzdem in der Historie.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            "$ziel/gitleaks" git . --no-banner --redact --exit-code 1 --log-opts="origin/$BASISZWEIG..HEAD"
+          fi
+
+      # Der PR ist die Lieferung: Abnahmekriterien, Prüfweg, „Nicht geprüft“ und Rückweg müssen
+      # im PR-Text stehen (Vorlage .github/pull_request_template.md, Prüfer scripts/pr-text-pruefen.sh).
+      # Liest den aktuellen Text über gh, damit ein erneuter Lauf nach einer Textänderung zählt.
+      - name: PR-Text prüfen
+        # PR-Autor statt Auslöser: Pusht ein Mensch auf einen Dependabot-Zweig, bleibt der Text
+        # Dependabots. shell: bash bringt pipefail — scheitert gh, ist das der Fehler, nicht
+        # „PR-Text ist leer“.
+        if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMMER: ${{ github.event.pull_request.number }}
+        run: gh pr view "$PR_NUMMER" --json body -q .body | bash scripts/pr-text-pruefen.sh
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.4'
-          extensions: intl
+          extensions: intl, pcov
           tools: composer:v2
-          coverage: none
+          # pcov statt none: die Diff-Abdeckung unten braucht Abdeckungsdaten (kostet wenig).
+          coverage: pcov
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -43,6 +96,44 @@ jobs:
 
       - name: Run CI Checks
         run: composer ci:check
+
+      # Kennzahlen je Funktion (PHPMD, ESLint) — bis Ende 2026 eine Warnung, ab 2027-01-01 ein Tor (Kern).
+      - name: Kennzahlen je Funktion
+        run: bash scripts/komplexitaet-pruefen.sh
+
+      # Sichere Standardkonfiguration (Geheimnisse leer, Debug aus, nur index.php öffentlich) und
+      # Lizenzen gegen die Allow-Liste — beides auch Teil von `check`.
+      - name: Konfiguration
+        run: bash scripts/konfig-pruefen.sh
+
+      - name: Lizenzen
+        run: bash scripts/lizenzen-pruefen.sh
+      # Zweiter Testlauf nur für die Abdeckung: `composer ci:check` bleibt das Tor, dieser
+      # Lauf liefert coverage.xml für den Vergleich mit dem Basiszweig.
+      # continue-on-error, bis ein echter Lauf vorliegt: ein technischer Fehler beim Erheben
+      # macht den PR gelb, nicht rot — fehlt coverage.xml, landet diff-cover im Warnzweig.
+      - name: Abdeckung erheben
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: php artisan test --parallel --coverage-clover=coverage.xml
+
+      # Diff-Abdeckung (V-28, E-4): nur neue und geänderte Zeilen zählen, Schwelle 80 %; der
+      # Bestand wird nicht gemessen. Bis Ende 2026 eine Warnung, ab 2027-01-01 rot — der
+      # Vergleich läuft im Skript, nicht im Kalender. Nur bei PRs (braucht den Basiszweig).
+      - name: Diff-Abdeckung (≥ 80 % der geänderten Zeilen)
+        if: github.event_name == 'pull_request'
+        env:
+          BASISZWEIG: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          pip install --quiet diff-cover==10.6.0
+          if diff-cover coverage.xml --compare-branch="origin/$BASISZWEIG" --fail-under=80; then
+            echo "Diff-Abdeckung: mindestens 80 % der geänderten Zeilen sind getestet."
+          elif [ "$(date -u +%F)" \< "2027-01-01" ]; then
+            echo "::warning::Diff-Abdeckung unter 80 % — bis Ende 2026 eine Warnung, ab 2027-01-01 rot (E-4)."
+          else
+            exit 1
+          fi
 
       - name: Sicherheitshinweise der Abhängigkeiten
         run: composer audit
