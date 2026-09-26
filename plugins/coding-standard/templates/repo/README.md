@@ -14,9 +14,10 @@
      erledigt (Zugangsdaten, Systemvoraussetzungen). -->
 
 1. Repository klonen.
-2. `git config core.hooksPath .githooks` — die Prüfhooks des Repos (gitleaks vor jedem Commit);
-   die Einstellung ist lokal und reist nicht mit dem Klon. gitleaks kommt mit der Einrichtung
-   des Arbeitsplatzes; fehlt es, warnt der Hook nur, die CI prüft trotzdem.
+2. Claude Code im Klon starten — der erste Sessionstart setzt `core.hooksPath .githooks`, die
+   Prüfhooks des Repos (gitleaks vor jedem Commit). Wer vorher im Terminal committet, setzt es
+   von Hand: `git config core.hooksPath .githooks`. gitleaks kommt mit der Einrichtung des
+   Arbeitsplatzes; fehlt es, warnt der Hook nur, die CI prüft trotzdem.
 3. Abhängigkeiten installieren und Prüfungen laufen lassen (siehe `CLAUDE.md`).
 4. `.env` aus `.env.example` ableiten, falls das Projekt eine braucht. Die Werte kommen aus
    dem KeePassXC-Tresor, nie aus dem Repository.

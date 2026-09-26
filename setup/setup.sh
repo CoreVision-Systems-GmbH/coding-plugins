@@ -415,7 +415,7 @@ autoupdate_setzen() {
         return 0
     fi
     mkdir -p "$CLAUDE_DIR"
-    [ -f "$datei" ] && cp "$datei" "$datei.bak-setup"
+    sichern_einmal "$datei"
     python3 - "$datei" "$MARKETPLACE_NAME" "$MARKETPLACE" <<'PY'
 import json, os, sys
 pfad, name, repo = sys.argv[1:4]
@@ -431,6 +431,81 @@ with open(pfad, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
     ok "automatische Aktualisierung eingeschaltet ($datei, Sicherung: settings.json.bak-setup)"
+}
+
+# Lesesperren für Claude-Sessions in ~/.claude/settings.json (permissions.deny): .env und ihre
+# Varianten, Tresor, SSH-Schlüssel, private Schlüssel, Dumps — dieselbe Absicht wie die Vorlage
+# neuer Projekte, hier mit **/ (jede Tiefe) und ~/Tresor, weil es für jedes Repo gilt, auch
+# eines ohne erklärten Standard. Nur ergänzen, nie entfernen: fremde Einträge und die
+# Erlaubnisliste bleiben. Als Feld, damit kein Glob aus Read(**/.env) einen Ordnernamen macht.
+LESESPERREN=('Read(**/.env)' 'Read(**/.env.local)' 'Read(**/.env.production)' 'Read(**/.env.staging)' 'Read(**/.env.dev)' 'Read(**/.env.development)' 'Read(**/.env.test)' 'Read(**/.env.testing)' 'Read(**/.env.backup)' 'Read(**/.env.bak)' 'Read(**/.env.*.local)' 'Read(~/.ssh/**)' 'Read(~/Tresor/**)' 'Read(**/*.kdbx)' 'Read(**/id_ed25519)' 'Read(**/id_rsa)' 'Read(**/*.pem)' 'Read(**/*.key)' 'Read(**/*.dump)' 'Read(**/*.sql.gz)')
+
+# Eine Sicherung je Lauf: Wer zweimal sichert, überschreibt den Stand vor dem Lauf mit dem
+# Zwischenstand — settings.json.bak-setup soll die Fassung vor der ersten Änderung sein.
+gesichert=0
+sichern_einmal() {
+    local datei="$1"
+    if [ $gesichert -eq 0 ] && [ -f "$datei" ]; then cp "$datei" "$datei.bak-setup"; gesichert=1; fi
+}
+
+lesesperren_gesetzt() {
+    local datei="$CLAUDE_DIR/settings.json"
+    [ -f "$datei" ] || return 1
+    if vorhanden python3; then
+        python3 - "$datei" "${LESESPERREN[@]}" <<'PY' 2>/dev/null
+import json, sys
+pfad, *sperren = sys.argv[1:]
+with open(pfad, encoding="utf-8-sig") as f:
+    d = json.load(f)
+deny = d.get("permissions", {}).get("deny", []) if isinstance(d, dict) else []
+sys.exit(0 if isinstance(deny, list) and all(s in deny for s in sperren) else 1)
+PY
+    else
+        local s
+        for s in "${LESESPERREN[@]}"; do grep -qF -- "\"$s\"" "$datei" || return 1; done
+    fi
+}
+
+lesesperren_setzen() {
+    local datei="$CLAUDE_DIR/settings.json" rc
+    if lesesperren_gesetzt; then ok "Lesesperren für Sessions sind gesetzt (.env, Tresor, Schlüssel, Dumps)"; return 0; fi
+    if [ $trocken -eq 1 ]; then tun "würde setzen: Lesesperren (permissions.deny) in $datei"; return 0; fi
+    if ! vorhanden python3; then
+        handgriff "Lesesperren: permissions.deny aus templates/repo/.claude/settings.json des Plugins in ~/.claude/settings.json übernehmen (mit **/ statt Projektpfad)"
+        return 0
+    fi
+    mkdir -p "$CLAUDE_DIR"
+    sichern_einmal "$datei"
+    # Exit 1 = kein JSON, Exit 2 = JSON, aber keine Objektstruktur (Liste, null, Text) — beides bleibt unangetastet.
+    # set -e würde bei Exit 1/2 hier abbrechen — deshalb den Rückgabewert abfangen.
+    rc=0; python3 - "$datei" "${LESESPERREN[@]}" <<'PY' || rc=$?
+import json, os, sys
+pfad, *sperren = sys.argv[1:]
+daten = {}
+if os.path.exists(pfad) and os.path.getsize(pfad) > 0:
+    with open(pfad, encoding="utf-8-sig") as f:
+        daten = json.load(f)
+if not isinstance(daten, dict):
+    sys.exit(2)
+rechte = daten.setdefault("permissions", {})
+if not isinstance(rechte, dict):
+    sys.exit(2)
+deny = rechte.setdefault("deny", [])
+if not isinstance(deny, list):
+    sys.exit(2)
+for s in sperren:
+    if s not in deny:
+        deny.append(s)
+with open(pfad, "w", encoding="utf-8") as f:
+    json.dump(daten, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+PY
+    case $rc in
+        0) ok "Lesesperren für Sessions gesetzt ($datei, Sicherung: settings.json.bak-setup)" ;;
+        2) befund "Lesesperren: $datei hat keine Objektstruktur (permissions oder deny sind kein Objekt bzw. keine Liste) — nichts geändert (Sicherung: settings.json.bak-setup)" ;;
+        *) befund "Lesesperren: $datei ist kein gültiges JSON — nichts geändert (Sicherung: settings.json.bak-setup)" ;;
+    esac
+    return 0
 }
 
 # ---------------------------------------------------------------- Prüfung
@@ -497,6 +572,11 @@ pruefen() {
     done
     if vorhanden claude; then
         if claude plugin list 2>&1 | grep -q "$PLUGIN"; then ok "Plugin $PLUGIN geladen"; else fehlt "Plugin $PLUGIN"; fi
+        # Ohne Python kann das Skript die Sperren nicht setzen: Im Normallauf hat lesesperren_setzen
+        # den Handgriff schon genannt (nicht doppelt), bei --check ist es ein Befund wie jeder andere.
+        if lesesperren_gesetzt; then ok "Lesesperren für Sessions gesetzt (.env, Tresor, Schlüssel, Dumps)"
+        elif vorhanden python3; then fehlt "Lesesperren in $CLAUDE_DIR/settings.json (permissions.deny) — der Lauf ohne --check setzt sie"
+        elif [ $nur_pruefen -eq 1 ]; then befund "Lesesperren in $CLAUDE_DIR/settings.json (permissions.deny) — ohne Python von Hand: Liste aus templates/repo/.claude/settings.json des Plugins, mit **/ statt Projektpfad"; fi
         if autoupdate_gesetzt; then ok "automatische Aktualisierung des Standards an"
         elif [ $trocken -eq 0 ]; then handgriff "Automatische Aktualisierung: in Claude Code /plugin → Marketplaces → $MARKETPLACE_NAME → Enable auto-update"; fi
         if claude auth status 2>/dev/null | grep -q '"loggedIn": *true'; then ok "Claude Code angemeldet"
@@ -606,6 +686,7 @@ if [ $nur_pruefen -eq 0 ]; then
             if [ $trocken -eq 1 ]; then tun "würde installieren: Plugin $PLUGIN (Scope user)"; else tun "installiere Plugin $PLUGIN"; claude plugin install "$PLUGIN" --scope user; fi
         fi
         autoupdate_setzen
+        lesesperren_setzen
     fi
 
     if [ -n "$bausteine" ]; then

@@ -267,9 +267,11 @@ function AutoUpdate-Setzen {
     if ($DryRun) { Tun "würde setzen: autoUpdate für $MarketplaceName in $datei"; return }
     New-Item -ItemType Directory -Force $ClaudeDir | Out-Null
     $s = [pscustomobject]@{}
-    if (Test-Path $datei) {
-        Copy-Item $datei "$datei.bak-setup" -Force
-        $s = Get-Content $datei -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ((Test-Path $datei) -and ((Get-Item $datei).Length -gt 0)) {
+        Sichern-Einmal $datei
+        try { $s = Get-Content $datei -Raw -Encoding UTF8 | ConvertFrom-Json }
+        catch { Befund "settings.json: $datei ist kein gültiges JSON — nichts geändert (Sicherung: settings.json.bak-setup)"; return }
+        if ($null -eq $s -or $s -isnot [System.Management.Automation.PSCustomObject]) { Befund "settings.json: $datei hat keine Objektstruktur — nichts geändert (Sicherung: settings.json.bak-setup)"; return }
     }
     $alle = Feld $s 'extraKnownMarketplaces'
     if ($null -eq $alle) {
@@ -282,8 +284,58 @@ function AutoUpdate-Setzen {
         $alle | Add-Member -NotePropertyName $MarketplaceName -NotePropertyValue $eintrag -Force
     }
     $eintrag | Add-Member -NotePropertyName autoUpdate -NotePropertyValue $true -Force
-    [System.IO.File]::WriteAllText($datei, ($s | ConvertTo-Json -Depth 32), (New-Object System.Text.UTF8Encoding $false))
+    [System.IO.File]::WriteAllText($datei, (ConvertTo-Json -InputObject $s -Depth 32), (New-Object System.Text.UTF8Encoding $false))
     Ok "automatische Aktualisierung eingeschaltet ($datei, Sicherung: settings.json.bak-setup)"
+}
+
+# Lesesperren für Claude-Sessions (permissions.deny in settings.json): .env und Varianten,
+# Tresor, SSH- und private Schlüssel, Dumps — dieselbe Absicht wie die Projektvorlage, hier
+# mit **/ (jede Tiefe) und ~/Tresor, weil es für jedes Repo gilt. Nur ergänzen, nie entfernen.
+# Eine Sicherung je Lauf: settings.json.bak-setup ist die Fassung vor der ersten Änderung.
+$script:Gesichert = $false
+function Sichern-Einmal([string]$Datei) {
+    if (-not $script:Gesichert -and (Test-Path $Datei)) { Copy-Item $Datei "$Datei.bak-setup" -Force; $script:Gesichert = $true }
+}
+$Lesesperren = @(
+    'Read(**/.env)', 'Read(**/.env.local)', 'Read(**/.env.production)', 'Read(**/.env.staging)',
+    'Read(**/.env.dev)', 'Read(**/.env.development)', 'Read(**/.env.test)', 'Read(**/.env.testing)',
+    'Read(**/.env.backup)', 'Read(**/.env.bak)', 'Read(**/.env.*.local)', 'Read(~/.ssh/**)',
+    'Read(~/Tresor/**)', 'Read(**/*.kdbx)', 'Read(**/id_ed25519)', 'Read(**/id_rsa)',
+    'Read(**/*.pem)', 'Read(**/*.key)', 'Read(**/*.dump)', 'Read(**/*.sql.gz)'
+)
+function Lesesperren-Gesetzt {
+    $deny = Feld (Feld (Settings-Lesen) 'permissions') 'deny'
+    if ($null -eq $deny) { return $false }
+    foreach ($s in $Lesesperren) { if (@($deny) -notcontains $s) { return $false } }
+    return $true
+}
+function Lesesperren-Setzen {
+    $datei = Join-Path $ClaudeDir 'settings.json'
+    if (Lesesperren-Gesetzt) { Ok 'Lesesperren für Sessions sind gesetzt (.env, Tresor, Schlüssel, Dumps)'; return }
+    if ($DryRun) { Tun "würde setzen: Lesesperren (permissions.deny) in $datei"; return }
+    New-Item -ItemType Directory -Force $ClaudeDir | Out-Null
+    $s = [pscustomobject]@{}
+    if ((Test-Path $datei) -and ((Get-Item $datei).Length -gt 0)) {
+        Sichern-Einmal $datei
+        try { $s = Get-Content $datei -Raw -Encoding UTF8 | ConvertFrom-Json }
+        catch { Befund "Lesesperren: $datei ist kein gültiges JSON — nichts geändert (Sicherung: settings.json.bak-setup)"; return }
+        # Eine Liste, null oder Text an der Wurzel ist JSON, aber keine Einstellungsdatei — nicht anfassen.
+        if ($null -eq $s -or $s -isnot [System.Management.Automation.PSCustomObject]) { Befund "Lesesperren: $datei hat keine Objektstruktur — nichts geändert (Sicherung: settings.json.bak-setup)"; return }
+    }
+    $rechte = Feld $s 'permissions'
+    if ($null -eq $rechte) {
+        $rechte = [pscustomobject]@{}
+        $s | Add-Member -NotePropertyName permissions -NotePropertyValue $rechte -Force
+    }
+    elseif ($rechte -isnot [System.Management.Automation.PSCustomObject]) { Befund "Lesesperren: permissions in $datei ist kein Objekt — nichts geändert (Sicherung: settings.json.bak-setup)"; return }
+    # @($null) wäre ein Feld mit einem Null-Eintrag — der landete als null in der Sperrliste.
+    $deny = @()
+    $vorhanden = Feld $rechte 'deny'
+    if ($null -ne $vorhanden) { $deny = @($vorhanden) }
+    foreach ($e in $Lesesperren) { if ($deny -notcontains $e) { $deny += $e } }
+    $rechte | Add-Member -NotePropertyName deny -NotePropertyValue $deny -Force
+    [System.IO.File]::WriteAllText($datei, (ConvertTo-Json -InputObject $s -Depth 32), (New-Object System.Text.UTF8Encoding $false))
+    Ok "Lesesperren für Sessions gesetzt ($datei, Sicherung: settings.json.bak-setup)"
 }
 
 function Pruefe-Baustein([string]$B) {
@@ -346,6 +398,8 @@ function Pruefen {
     foreach ($d in @($CodeDir, $TresorDir)) { if (Test-Path $d) { Ok "Ordner $d" } else { Fehlt "Ordner $d" } }
     if (Vorhanden 'claude') {
         if ((Aufruf 'claude' @('plugin', 'list')).Text -match [regex]::Escape($Plugin)) { Ok "Plugin $Plugin geladen" } else { Fehlt "Plugin $Plugin" }
+        if (Lesesperren-Gesetzt) { Ok 'Lesesperren für Sessions gesetzt (.env, Tresor, Schlüssel, Dumps)' }
+        else { Fehlt "Lesesperren in $ClaudeDir\settings.json (permissions.deny) — der Lauf ohne -Check setzt sie" }
         if (AutoUpdate-Gesetzt) { Ok 'automatische Aktualisierung des Standards an' }
         elseif (-not $DryRun) { Handgriff "Automatische Aktualisierung: in Claude Code /plugin → Marketplaces → $MarketplaceName → Enable auto-update" }
         if ((Aufruf 'claude' @('auth', 'status')).Text -match '"loggedIn":\s*true') { Ok 'Claude Code angemeldet' }
@@ -451,6 +505,7 @@ if (-not $Check) {
             else { Tun "installiere Plugin $Plugin"; & claude plugin install $Plugin --scope user | Out-Host }
         }
         AutoUpdate-Setzen
+        Lesesperren-Setzen
     }
 
     if ($Bausteine.Count -gt 0) {

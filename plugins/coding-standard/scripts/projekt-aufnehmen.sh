@@ -288,6 +288,15 @@ if [ -n "$STACK" ] && [ -d "$vorlagen/$STACK/dateien/.claude/rules" ]; then
         pruefe 1 "$([ -f "$DIR/$rel" ] && echo 0 || echo 1)" "$rel (Regeln des Stacks)" "templates/$STACK/dateien/$rel"
     done
 fi
+# Editor-Dateien des Stacks: Tore als Aufgaben, Git-Schutz und Erweiterungen — derselbe Schutz
+# für den Menschen im Editor wie für Claude (Git-Guard). Nie überschrieben, nur ergänzt.
+if [ -n "$STACK" ] && [ -d "$vorlagen/$STACK/dateien/.vscode" ]; then
+    for editor in "$vorlagen/$STACK/dateien/.vscode"/*.json; do
+        [ -f "$editor" ] || continue
+        rel=".vscode/$(basename "$editor")"
+        pruefe 1 "$([ -f "$DIR/$rel" ] && echo 0 || echo 1)" "$rel (Editor: Tore als Aufgaben, Git-Schutz, Erweiterungen)" "templates/$STACK/dateien/$rel"
+    done
+fi
 # Dependabot ist Konfiguration, kein Lieferweg — je Stack passend, deshalb aus dessen Vorlage.
 dependabot_vorlage=""
 [ -n "$STACK" ] && [ -f "$vorlagen/$STACK/dateien/.github/dependabot.yml" ] && dependabot_vorlage="templates/$STACK/dateien/.github/dependabot.yml"
@@ -535,6 +544,12 @@ if [ -n "$STACK" ] && [ -d "$vorlagen/$STACK/dateien/.claude/rules" ]; then
     for regel in "$vorlagen/$STACK/dateien/.claude/rules"/*.md; do
         [ -f "$regel" ] || continue
         anlegen "$regel" ".claude/rules/$(basename "$regel")"
+    done
+fi
+if [ -n "$STACK" ] && [ -d "$vorlagen/$STACK/dateien/.vscode" ]; then
+    for editor in "$vorlagen/$STACK/dateien/.vscode"/*.json; do
+        [ -f "$editor" ] || continue
+        anlegen "$editor" ".vscode/$(basename "$editor")"
     done
 fi
 [ -z "$dependabot_vorlage" ] || anlegen "$root/$dependabot_vorlage" ".github/dependabot.yml"

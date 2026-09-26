@@ -1,0 +1,35 @@
+{
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "[markdown]": {
+    "files.trimTrailingWhitespace": false
+  },
+  "[powershell]": {
+    "files.encoding": "utf8bom",
+    "files.eol": "\r\n"
+  },
+  "git.enableSmartCommit": false,
+  "git.suggestSmartCommit": false,
+  "git.branchProtection": [
+    "main",
+    "master"
+  ],
+  "git.branchProtectionPrompt": "alwaysPrompt",
+  "git.allowForcePush": false,
+  "git.branchPrefix": "feat/",
+  "git.confirmSync": true,
+  "terminal.integrated.defaultProfile.windows": "Git Bash",
+  "cSpell.language": "en,de-DE",
+  "files.watcherExclude": {
+    "**/vendor/**": true,
+    "**/node_modules/**": true,
+    "**/.venv/**": true
+  },
+  "search.exclude": {
+    "**/vendor/**": true,
+    "**/node_modules/**": true,
+    "**/.venv/**": true
+  }
+}

@@ -2,7 +2,8 @@
 # pre-commit — Geheimnis-Scanner gitleaks über die vorgemerkten Änderungen.
 #
 # Wirkt, sobald das Repo den Hook-Ordner kennt: `git config core.hooksPath .githooks`
-# (setzen /projekt-neu und /projekt-aufnehmen; nach einem frischen Klon einmal von Hand).
+# (setzen /projekt-neu, /projekt-aufnehmen und der Sessionstart von Claude Code im Klon —
+# der erkennt diesen Hook an „gitleaks“; vor dem ersten Claude-Start einmal von Hand).
 # Die Regeln stehen in .gitleaks.toml im Wurzelverzeichnis; gitleaks findet sie selbst.
 #
 # Der Hook ist die erste Sperre, nicht die letzte: Die CI prüft dieselben Regeln über den

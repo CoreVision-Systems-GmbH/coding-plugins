@@ -153,9 +153,10 @@ ausdrückliche Anweisung des Nutzers
 
 ## Hook: git-guard
 
-Ein `PreToolUse`-Hook auf dem Bash-Tool. Er liest den Befehlstext aus der Hook-Nutzlast
-und blockiert zerstörende Befehle, bevor sie laufen. Ohne `jq` — unter Windows nicht
-vorhanden — nur mit bash-Bordmitteln.
+Ein `PreToolUse`-Hook auf den Werkzeugen Bash **und PowerShell** (seit 1.1.0 — vorher ließ
+sich jede Sperre über die andere Shell umgehen). Er liest den Befehlstext aus der
+Hook-Nutzlast und blockiert zerstörende Befehle, bevor sie laufen. Ohne `jq` — unter Windows
+nicht vorhanden — nur mit bash-Bordmitteln.
 
 **Blockiert:**
 
@@ -170,16 +171,22 @@ vorhanden — nur mit bash-Bordmitteln.
 | `git branch -D` | löscht auch ungemergte Zweige |
 | `git checkout -- .` | verwirft alle Änderungen im Arbeitsbaum |
 | `git restore .` / `git restore --staged .` | dito |
-| `rm -rf` auf `/`, `/*`, `~`, `.`, `*`, `..` oder einen absoluten Pfad außerhalb des Arbeitsverzeichnisses | löscht mehr als gemeint |
+| `rm -rf` und PowerShell `Remove-Item -Recurse -Force` (auch `ri`, `rm`, `rd`, `del`, abgekürzte Parameter, `-Path`, Kommalisten) auf `/`, `~`, `.`, `*`, `..`, `$HOME`, `$env:USERPROFILE`, ein Laufwerk (`C:\`, `/c`, `/mnt/c`), das Benutzerverzeichnis oder einen absoluten Pfad außerhalb des Arbeitsverzeichnisses | löscht mehr als gemeint |
+| `git add .`/`-A`/`-u`, `--no-verify`, Umbiegen von `core.hooksPath`, Datenbanklöscher (`migrate:fresh`, `db:wipe`, `alembic downgrade base`, `wp db reset`) | seit 1.0.0, siehe Kopf von `git-guard.sh` |
 
 **Bleibt erlaubt:** Tags pushen (`git push origin v1.2.3`, `git push --tags`), Push auf
 einen Feature-Zweig, `--force-with-lease` auf dem eigenen Zweig, `git clean -n`,
 `git branch -d`, gezieltes `git restore <datei>`, `rm -rf` auf einen relativen Pfad im
 Projekt.
 
+**Schreibweisen, die nicht durchrutschen:** JSON-Unicode-Maskierung (`m\u0061in` ist `main`),
+Zeilenfortsetzung mit `\` (Bash) oder `` ` `` (PowerShell) am Zeilenende, `Git.exe` in
+beliebiger Schreibung, `--%` vor den Argumenten, Laufwerkspfade in allen drei Formen
+(`C:\Users`, `/c/Users`, `/mnt/c/Users`).
+
 Der Ablehnungsgrund sagt jeweils, was stattdessen zu tun ist. Der Hook ist ein Geländer,
-kein Gefängnis: er sieht den Befehlstext, nicht dessen Laufzeitverhalten. Er soll den
-versehentlichen Griff verhindern.
+kein Gefängnis: er sieht den Befehlstext, nicht dessen Laufzeitverhalten (`bash -c "…"`
+und `Invoke-Expression` bleiben unsichtbar). Er soll den versehentlichen Griff verhindern.
 
 **Ausnahme für Doku- und Backup-Repos:** Liegt im Arbeitsverzeichnis der Session eine Datei
 `.git-guard-main-ok`, ist dort der Push auf `main`/`master` erlaubt — für Repos ohne

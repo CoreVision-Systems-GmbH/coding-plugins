@@ -99,6 +99,33 @@ if [ "$nur_stacks" -eq 1 ]; then
     exit 0
 fi
 
+# ------------------------------------------------------- Prüfhooks des Repos
+# Der Hook-Ordner .githooks reist mit dem Repo, die Einstellung core.hooksPath nicht: In jedem
+# frischen Klon fehlt sie, und der pre-commit-Hook (gitleaks) läuft nicht. Deshalb setzt der
+# Sessionstart sie, wenn der Ordner da ist und im Repo nichts gesetzt ist — eigene Hooks
+# (etwa husky) bleiben unberührt, ebenso Repos ohne .githooks.
+hooks_hinweis=""
+if [ -f "$proj/.githooks/pre-commit" ] && git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    top="$(git -C "$proj" rev-parse --show-toplevel 2>/dev/null || true)"
+    hier="$(cd "$proj" 2>/dev/null && pwd -P)"
+    # Nur an der Wurzel des Repos (im Unterordner eines Monorepos zeigte .githooks ins Leere und
+    # schaltete die Hooks des Repos ab), nur für den Vorlagen-Hook (gitleaks) und nur, wenn kein
+    # weiterer Hook im Ordner liegt — ein fremdes Repo mit Marker darf beim bloßen Sessionstart
+    # keine eigenen Hooks scharf schalten. Beide pwd -P, damit C:/… und /c/… vergleichbar sind.
+    if [ -n "$top" ] && [ "$(cd "$top" 2>/dev/null && pwd -P)" = "$hier" ] \
+        && grep -q 'gitleaks' "$proj/.githooks/pre-commit" 2>/dev/null \
+        && [ "$(ls -A "$proj/.githooks" 2>/dev/null | wc -l)" -eq 1 ]; then
+        vorhanden="$(git -C "$proj" config --get core.hooksPath 2>/dev/null || true)"
+        if [ -z "$vorhanden" ]; then
+            git -C "$proj" config core.hooksPath .githooks 2>/dev/null \
+                && hooks_hinweis="core.hooksPath auf .githooks gesetzt — der pre-commit-Hook (gitleaks) läuft ab jetzt in diesem Klon."
+        elif [ "$vorhanden" != ".githooks" ] && [ -z "$(git -C "$proj" config --local --get core.hooksPath 2>/dev/null)" ]; then
+            # Global gesetzt: nicht verdrängen, aber sagen, dass der Hook des Repos so nicht läuft.
+            hooks_hinweis="core.hooksPath ist global auf $vorhanden gesetzt — der pre-commit-Hook des Repos (.githooks) läuft nicht; bei Bedarf: git config core.hooksPath .githooks"
+        fi
+    fi
+fi
+
 # ------------------------------------------------------------------ Ausgabe
 erkannt="keiner"
 dateien="$root/core/kern.md"
@@ -126,4 +153,5 @@ Deutsch mit echten Umlauten; Migrationen additiv, Backup vor Migration; produkti
 Aktionen nur nach Bestätigung.
 EOF
 [ -n "$fehlend" ] && echo "Hinweis: für$fehlend gibt es noch kein Overlay — es gilt nur der Kern."
+[ -n "$hooks_hinweis" ] && echo "Hinweis: $hooks_hinweis"
 exit 0

@@ -32,21 +32,22 @@ make_repo "$TMP/auf-feature" "feat/beispiel"
 make_repo "$TMP/auf-main-frei" "main"
 : > "$TMP/auf-main-frei/.git-guard-main-ok"
 
-# JSON-Nutzlast bauen. $1 = Befehl (bereits JSON-escaped), $2 = Arbeitsverzeichnis.
+# JSON-Nutzlast bauen. $1 = Befehl (bereits JSON-escaped), $2 = Arbeitsverzeichnis,
+# $3 = Werkzeug (Bash oder PowerShell; der Hook hängt seit 1.1.0 an beiden).
 payload() {
-  printf '{"session_id":"s1","transcript_path":"/tmp/t.jsonl","cwd":"%s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s","description":"Testfall"}}' "$2" "$1"
+  printf '{"session_id":"s1","transcript_path":"/tmp/t.jsonl","cwd":"%s","hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"command":"%s","description":"Testfall"}}' "$2" "${3:-Bash}" "$1"
 }
 
 TOTAL=0
 FAILED=0
 
-# check <block|allow> <arbeitsverzeichnis> <json-escaped befehl> <beschreibung>
+# check <block|allow> <arbeitsverzeichnis> <json-escaped befehl> <beschreibung> [werkzeug]
 check() {
-  local expected="$1" wd="$2" command_text="$3" label="$4"
+  local expected="$1" wd="$2" command_text="$3" label="$4" tool="${5:-Bash}"
   local output rc actual
 
   TOTAL=$((TOTAL + 1))
-  output="$(cd "$wd" && payload "$command_text" "$wd" | bash "$GUARD" 2>&1)"
+  output="$(cd "$wd" && payload "$command_text" "$wd" "$tool" | bash "$GUARD" 2>&1)"
   rc=$?
 
   actual="allow"
@@ -216,6 +217,82 @@ check allow "$F" 'git config core.hooksPath ./.githooks'      '117 ./.githooks'
 check allow "$F" 'git config --local core.hooksPath .githooks' '118 --local .githooks'
 check allow "$F" 'git commit -m \"x\" 2>&1'                   '119 2>&1 ist kein Trenner-Unfall'
 check allow "$F" 'grep -r \"alembic downgrade base\" docs/'   '120 Suchmuster in Anführungszeichen'
+
+echo
+echo "== Seit 1.1.0: PowerShell-Werkzeug, Zeilenfortsetzung, Unicode-Maskierung, Laufwerkspfade =="
+check block "$F" 'git push origin main'                       '121 PowerShell: Push auf main' PowerShell
+check block "$F" 'git push --force origin feat/beispiel'      '122 PowerShell: Force-Push' PowerShell
+check block "$F" 'Git.exe push -f origin feat/beispiel'       '123 PowerShell: Git.exe groß geschrieben' PowerShell
+check block "$F" 'git push origin \\\nmain'                  '124 Bash-Zeilenfortsetzung vor main'
+check block "$F" 'git push origin `\nmain'                    '125 PowerShell-Zeilenfortsetzung vor main' PowerShell
+check block "$F" 'git push --for\\\nce origin feat/beispiel' '126 Zeilenfortsetzung mitten im Flag'
+check block "$F" 'git push origin m\u0061in'                  '127 Unicode-Maskierung im Zweignamen'
+check block "$F" 'git push --f\u006frce origin feat/beispiel' '128 Unicode-Maskierung im Flag'
+check block "$F" 'git \u0061dd .'                             '129 Unicode-Maskierung im Unterbefehl'
+check block "$F" 'rm -rf /mnt/c/Users/jemand'                 '130 rm -rf auf WSL-Pfad'
+check block "$F" 'rm -rf /c/Users/jemand'                     '131 rm -rf auf Git-Bash-Laufwerkspfad'
+check block "$F" 'Remove-Item -Recurse -Force C:\\Users\\jemand' '132 Remove-Item auf Benutzerordner' PowerShell
+check block "$F" 'Remove-Item -Recurse -Force ~'              '133 Remove-Item auf ~' PowerShell
+check block "$F" 'rm -r -Force $HOME'                         '134 rm -r -Force $HOME' PowerShell
+check block "$F" 'Remove-Item -Path . -Recurse -Force'        '135 Remove-Item -Path .' PowerShell
+check block "$F" 'ri -r -fo C:\\'                             '136 ri -r -fo auf Laufwerk (abgekürzt)' PowerShell
+check block "$F" 'Remove-Item -Recurse -Force $env:USERPROFILE' '137 Remove-Item auf $env:USERPROFILE' PowerShell
+check block "$F" 'Remove-Item -LiteralPath /mnt/c -Recurse -Force' '138 Remove-Item -LiteralPath /mnt/c' PowerShell
+check block "$F" 'Remove-Item .\\*, C:\\Temp -Recurse -Force'  '139 Remove-Item mit Kommaliste' PowerShell
+check block "$F" 'git push --% --force origin feat/beispiel'  '140 --% (Stop-Parsing) vor --force' PowerShell
+check block "$F" 'git commit --no-verify -m \"x\"'            '141 PowerShell: --no-verify' PowerShell
+check block "$F" 'php artisan migrate:fresh'                  '142 PowerShell: migrate:fresh' PowerShell
+check block "$M" 'git push'                                   '143 PowerShell: Push ohne Ziel auf main' PowerShell
+
+echo
+echo "== Erlaubt: PowerShell-Alltag =="
+check allow "$F" 'git status --porcelain'                     '144 PowerShell: git status' PowerShell
+check allow "$F" 'git push -u origin feat/beispiel'           '145 PowerShell: Feature-Zweig pushen' PowerShell
+check allow "$F" 'git push origin `\nfeat/beispiel'           '146 PowerShell-Zeilenfortsetzung auf Feature-Zweig' PowerShell
+check allow "$F" 'Remove-Item -Recurse -Force node_modules'   '147 Remove-Item auf Projektordner' PowerShell
+check allow "$F" 'Remove-Item -Recurse -Force .\\dist'        '148 Remove-Item auf .\\dist' PowerShell
+check allow "$F" 'rm -r node_modules'                         '149 rm -r ohne -Force' PowerShell
+check allow "$F" 'Remove-Item -Path .\\build -Recurse -Force'  '150 Remove-Item -Path relativ' PowerShell
+check allow "$F" 'Write-Host \"git push --force\"'            '151 Schlagworte als Text in Write-Host' PowerShell
+check allow "$F" 'git commit -m \"Gr\u00fc\u00dfe\"'           '152 Unicode-Umlaute im Commit-Text' PowerShell
+check allow "$V" 'git push origin main'                       '153 Marker: Push auf main auch aus PowerShell' PowerShell
+
+echo
+echo "== Befunde aus dem Review: Wortparameter, Maskierung im Wort, Elternordner, volle Pfade =="
+check allow "$F" 'Remove-Item -Force C:\\Temp\\x.log'           '154 -Force ohne -Recurse ist nicht rekursiv' PowerShell
+check allow "$F" 'Remove-Item -Force -ErrorAction SilentlyContinue C:\\Temp\\x.log' '155 -ErrorAction ist kein -Recurse' PowerShell
+check allow "$F" 'Remove-Item -Recurse -WhatIf ~'              '156 -WhatIf ist kein -Force' PowerShell
+check allow "$F" 'rm -Force ~/.npmrc'                         '157 rm -Force einzeln (PowerShell)' PowerShell
+check block "$F" 'Remove-Item -Recurse:$true -Force:$true ~'  '158 -Recurse:$true -Force:$true' PowerShell
+check block "$F" 'git pu`sh origin main'                      '159 Backtick im Wort (PowerShell)' PowerShell
+check block "$F" 'git push --for`ce origin feat/beispiel'     '160 Backtick im Flag (PowerShell)' PowerShell
+check block "$F" 'git pu\\sh origin main'                     '161 Backslash im Wort (Bash)'
+check block "$F" '\\git push origin main'                     '162 Backslash vor git (Bash)'
+check block "$F" 'Remove-Item -Path:C:\\Users\\x -Recurse -Force' '163 -Path:Wert' PowerShell
+check block "$F" 'Remove-Item -LiteralPath:~ -Recurse -Force' '164 -LiteralPath:~' PowerShell
+check block "$F" 'rm -rf ../../..'                            '165 Elternordner mehrfach'
+check block "$F" 'rm -rf ../*'                                '166 Geschwister über ../*'
+check block "$F" 'Remove-Item -Recurse -Force ..\\..'         '167 Elternordner (PowerShell)' PowerShell
+check block "$F" 'rm -rf $HOME/.config'                       '168 $HOME mit Unterpfad'
+check block "$F" 'rm -rf $HOME/*'                             '169 $HOME/*'
+check block "$F" 'Remove-Item -Recurse -Force $env:USERPROFILE\\*' '170 $env:USERPROFILE\\*' PowerShell
+check block "$F" 'Remove-Item -Recurse -Force $env:USERPROFILE\\Documents' '171 $env:USERPROFILE\\Documents' PowerShell
+check block "$F" 'Remove-Item -Recurse -Force $env:HOMEDRIVE$env:HOMEPATH' '172 $env:HOMEDRIVE$env:HOMEPATH' PowerShell
+check block "$F" '& \"C:\\Program Files\\Git\\cmd\\git.exe\" push origin main' '173 git über vollen Pfad (PowerShell)' PowerShell
+check block "$F" '/usr/bin/git push origin main'              '174 git über vollen Pfad (Bash)'
+check block "$F" 'git --% push origin main'                   '175 --% vor dem Unterbefehl' PowerShell
+check block "$F" 'command git push origin main'               '176 command git'
+check block "$F" 'exec git push --force origin feat/beispiel' '177 exec git'
+check block "$F" 'Write-Host \"<<x\"\ngit push origin main'   '178 << in einem PowerShell-String ist kein Heredoc' PowerShell
+check block "$F" "rm -rf $F"                                  '179 Arbeitsverzeichnis selbst als absoluter Pfad'
+check block "$F" "rm -rf $F/.."                               '180 Arbeitsverzeichnis/..'
+check allow "$F" 'Remove-Item -Recurse -Force .\\dist'        '181 relativer Unterordner bleibt erlaubt' PowerShell
+check allow "$F" 'echo `git push origin main`'                '182 Backtick-Substitution hinter echo (Bash)'
+
+# hooks.json: die eigentliche Änderung hinter A1 — der Hook hängt an beiden Werkzeugen.
+TOTAL=$((TOTAL + 1))
+if grep -q '"matcher": "Bash|PowerShell"' "$HERE/hooks.json"; then printf 'ok      %-56s %s\n' '183 hooks.json: Matcher Bash|PowerShell' 'vorhanden'
+else printf 'FEHLER  %-56s\n' '183 hooks.json: Matcher Bash|PowerShell fehlt'; FAILED=$((FAILED + 1)); fi
 
 echo
 printf 'Fälle: %s   Fehler: %s\n' "$TOTAL" "$FAILED"

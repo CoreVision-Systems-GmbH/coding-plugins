@@ -20,7 +20,10 @@ credentials.json
 # Werkzeuge
 .DS_Store
 /.idea
-/.vscode
+/.vscode/*
+!/.vscode/settings.json
+!/.vscode/extensions.json
+!/.vscode/tasks.json
 /.zed
 /.claude/settings.local.json
 .projekt-neu-nacharbeit

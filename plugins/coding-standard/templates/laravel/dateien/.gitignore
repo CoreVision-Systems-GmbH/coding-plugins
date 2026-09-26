@@ -37,7 +37,10 @@ yarn-error.log
 /.fleet
 /.idea
 /.nova
-/.vscode
+/.vscode/*
+!/.vscode/settings.json
+!/.vscode/extensions.json
+!/.vscode/tasks.json
 /.zed
 
 # Zusätzlich (Firmenstandard)

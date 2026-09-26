@@ -7,6 +7,50 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.1.0] — 2026-09-25
+
+### Hinzugefügt
+
+- **Editor-Dateien je Stack** (`.vscode/settings.json`, `extensions.json`, `tasks.json` in allen
+  Vorlagen): derselbe Schutz für den Menschen im Editor wie für Claude durch den Git-Guard —
+  kein „alles stagen“ (`git.enableSmartCommit` aus), `main` geschützt, Force-Push abgeschaltet,
+  Zweigpräfix `feat/`, UTF-8 mit LF (PowerShell CRLF mit BOM), Rechtschreibung Deutsch und
+  Englisch, Pint bzw. ruff beim Speichern, Ausschlüsse für `vendor`, `node_modules`, `.venv`.
+  Die Tore als Aufgaben (Terminal → Aufgabe ausführen): `check` als Standard-Testaufgabe,
+  Kennzahlen, Konfiguration, Lizenzen, Rauchtest-Trockenlauf, Dev-Instanz, Playwright, PR-Text.
+  Empfohlene Erweiterungen je Stack (Claude Code, Remote-SSH, EditorConfig, Rechtschreibung,
+  markdownlint, YAML, ShellCheck, Container Tools; PHP über Intelephense (kostenlos) mit
+  Pint/PHPStan/Laravel/Playwright bzw. PHP Sniffer & Beautifier für die WordPress-Coding-Standards,
+  Python/ruff/mypy, Astro, PowerShell) — ein zweiter PHP-Sprachserver ist als unerwünscht
+  eingetragen (zwei nebeneinander fressen Gigabytes). Kein globales Profil: Die Dateien reisen mit
+  dem Repo; `.gitignore` lässt nur diese drei aus `.vscode/` durch. `/projekt-aufnehmen`
+  meldet und legt sie an (Stufe 1), nie überschreibend.
+
+- **Lesesperren für Claude-Sessions auf dem ganzen Gerät:** Die Einrichtung (`setup.sh`,
+  `setup.ps1`) trägt `permissions.deny` in `~/.claude/settings.json` ein — `.env` samt
+  Varianten, `~/Tresor`, `~/.ssh`, private Schlüssel, Dumps. Bisher galt die Liste nur je
+  Projekt aus der Vorlage; in einem Repo ohne erklärten Standard las Claude die `.env`.
+  Vorhandene Einträge und die Erlaubnisliste bleiben, `--check` meldet fehlende Sperren.
+- **`core.hooksPath` setzt sich beim Sessionstart:** Liegt der gitleaks-Hook der Vorlage allein in
+  `.githooks/`, steht die Session an der Wurzel des Repos und ist nichts gesetzt (auch nicht
+  global), trägt der SessionStart-Hook `core.hooksPath .githooks` ein und sagt es. Der Handgriff
+  „einmal je Klon“ entfällt, sobald Claude Code einmal im Klon gestartet wurde; wer vorher im
+  Terminal committet, setzt ihn von Hand. Eigene Hooks (husky, globaler `hooksPath`) bleiben
+  unberührt, ein fremder `pre-commit` ohne gitleaks oder ein Ordner mit weiteren Hooks wird
+  nicht aktiviert — ein fremdes Repo mit Marker schaltet beim Sessionstart nichts scharf.
+
+### Geändert
+
+- **Der Git-Guard hängt auch am PowerShell-Werkzeug.** Bisher galt er nur für das Bash-Werkzeug
+  — ein `git push origin main` oder `Remove-Item -Recurse -Force ~` über PowerShell lief ohne
+  Geländer durch (beim Release 1.0.0 selbst so passiert). Jetzt gelten dieselben Regeln in beiden
+  Shells; dazu versteht der Hook `Remove-Item` samt Aliassen (`ri`, `rm`, `rd`, `del`),
+  abgekürzte Parameter (`-r`, `-fo`), `-Path`, Kommalisten und Laufwerkspfade (`C:\`, `/c/`,
+  `/mnt/c/`). Drei Umgehungen sind geschlossen: JSON-Unicode-Maskierung (`m\u0061in` war ein
+  `m?in`), Zeilenfortsetzung (`\` oder `` ` `` am Zeilenende trennte den Befehl) und
+  `Git.exe` in Großschreibung. 63 neue Testfälle (183 gesamt). Die Ausnahme
+  `.git-guard-main-ok` gilt in beiden Shells.
+
 ## [1.0.0] — 2026-09-25
 
 ### Hinzugefügt

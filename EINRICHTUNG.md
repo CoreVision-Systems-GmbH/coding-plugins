@@ -158,8 +158,11 @@ In dieser Reihenfolge; Vorhandenes wird übersprungen — ein zweiter Lauf holt 
    Remote-SSH und ein SSH-Schlüssel (`ssh-keygen -t ed25519`, fragt nach einer Passphrase).
    macOS: vorher Homebrew, falls es fehlt (fragt nach deinem Passwort).
 2. **Ordner** `~/Code` und `~/Tresor` (A.2).
-3. **Marketplace und Plugin** mit **automatischer Aktualisierung** (A.9). Dafür wird
-   `~/.claude/settings.json` ergänzt; die alte Fassung bleibt als `settings.json.bak-setup`.
+3. **Marketplace und Plugin** mit **automatischer Aktualisierung** (A.9) und **Lesesperren für
+   Claude-Sessions**: `permissions.deny` in `~/.claude/settings.json` sperrt für die Werkzeuge
+   das Lesen von `.env` und ihren Varianten, `~/Tresor`, `~/.ssh`, privaten Schlüsseln und
+   Datenbank-Dumps — in jedem Repo, auch ohne erklärten Standard. Vorhandene Einträge bleiben;
+   die alte Fassung bleibt als `settings.json.bak-setup`.
 4. **Werkzeuge der gewählten Stacks** (A.3), aus diesen Quellen:
 
    | Baustein | Windows (winget) | macOS (Homebrew) | Ubuntu/Debian (apt) |
@@ -453,12 +456,14 @@ Auf dem Dev-Server (VS Code mit Remote-SSH, Terminal dort):
 ```
 gh repo clone CoreVision-Systems-GmbH/<projekt> ~/Code/<projekt>
 cd ~/Code/<projekt>
-git config core.hooksPath .githooks     # Prüfhooks des Repos: gitleaks vor jedem Commit
 claude
 ```
 
-`core.hooksPath` ist lokale Git-Konfiguration und reist nicht mit dem Klon — deshalb einmal je
-Klon. Der Hook warnt nur, wenn gitleaks fehlt; die CI prüft in jedem Fall.
+`core.hooksPath` ist lokale Git-Konfiguration und reist nicht mit dem Klon. Seit Plugin 1.1.0
+setzt der erste Sessionstart von Claude Code im Klon sie selbst (`.githooks`, nur an der Wurzel
+des Repos und nur für den gitleaks-Hook der Vorlage). Wer vor dem ersten Claude-Start im Terminal
+committet, setzt sie von Hand: `git config core.hooksPath .githooks`. Der Hook warnt nur, wenn
+gitleaks fehlt; die CI prüft in jedem Fall.
 
 Beim ersten Start fragt Claude Code, ob du dem Ordner und dem Marketplace `corevision` vertraust
 — ja. Danach meldet es „Firmenstandard coding-standard@corevision gilt in diesem Repo (Stack
@@ -538,7 +543,7 @@ aus — `--check` meldet eine zu alte Fassung.
 | `claude plugin install` findet das Plugin nicht | Marketplace-Kopie veraltet | `claude plugin marketplace update corevision` |
 | Das Skript bricht unter Git Bash ab | `setup.sh` ist nicht für Windows | `setup.ps1` in der PowerShell |
 | Beim Commit „pre-commit: gitleaks fehlt“ | Scanner nicht installiert oder nicht im PATH | Skript erneut starten (Grundausstattung) oder A.5.1; neue Shell |
-| Der Commit geht durch, obwohl `.githooks/pre-commit` da ist | `core.hooksPath` in diesem Klon nicht gesetzt | `git config core.hooksPath .githooks` (A.7) |
+| Der Commit geht durch, obwohl `.githooks/pre-commit` da ist | `core.hooksPath` in diesem Klon nicht gesetzt (noch keine Claude-Session im Klon gestartet, oder global gesetzt) | Claude Code einmal starten oder `git config core.hooksPath .githooks` (A.7) |
 
 Hilft nichts davon: Ausgabe des Skripts und von `--check` als Issue in
 [`coding-plugins`](https://github.com/CoreVision-Systems-GmbH/coding-plugins/issues) melden.

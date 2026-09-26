@@ -1,0 +1,43 @@
+{
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "[markdown]": {
+    "files.trimTrailingWhitespace": false
+  },
+  "[powershell]": {
+    "files.encoding": "utf8bom",
+    "files.eol": "\r\n"
+  },
+  "git.enableSmartCommit": false,
+  "git.suggestSmartCommit": false,
+  "git.branchProtection": [
+    "main",
+    "master"
+  ],
+  "git.branchProtectionPrompt": "alwaysPrompt",
+  "git.allowForcePush": false,
+  "git.branchPrefix": "feat/",
+  "git.confirmSync": true,
+  "terminal.integrated.defaultProfile.windows": "Git Bash",
+  "cSpell.language": "en,de-DE",
+  "files.watcherExclude": {
+    "**/.venv/**": true,
+    "**/__pycache__/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/.mypy_cache/**": true
+  },
+  "search.exclude": {
+    "**/.venv/**": true,
+    "**/__pycache__/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/.mypy_cache/**": true
+  },
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true
+  }
+}

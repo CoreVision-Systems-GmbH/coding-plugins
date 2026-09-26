@@ -137,6 +137,7 @@ enthaelt_muster "Stufe 3: Script lint vorhanden" 'ok +composer\.json: Script „
 enthaelt_muster "Stufe 3: Script types:check fehlt" 'fehlt +composer\.json: Script „types:check“'
 enthaelt_muster "Stufe 3: pint.json fehlt, Vorlage genannt" 'fehlt +pint\.json: .*← templates/laravel/dateien/pint\.json'
 enthaelt_muster "Stufe 3: Kennzahlen fehlen, Vorlage genannt" 'fehlt +Kennzahlen je Funktion .*← templates/laravel/dateien/phpmd\.xml'
+enthaelt_muster "Stufe 1: Editor-Dateien fehlen, Vorlage genannt" 'fehlt +\.vscode/tasks\.json .*← templates/laravel/dateien/\.vscode/tasks\.json'
 # Fall „vorhanden“: mit beiden Dateien aus der Vorlage meldet die Stufe ok — und ändert nichts.
 cp "$root/templates/laravel/dateien/phpmd.xml" "$root/templates/laravel/dateien/scripts/komplexitaet-pruefen.sh" "$a/" 2>/dev/null || true
 mkdir -p "$a/scripts" && mv "$a/komplexitaet-pruefen.sh" "$a/scripts/"
@@ -188,6 +189,9 @@ grep -q 'Musterkunde auf host1' "$a/CLAUDE.md" \
     && ok "Kunde eingesetzt" || nichtok "Kunde eingesetzt"
 grep -qE '^\* @[A-Za-z0-9-]+' "$a/.github/CODEOWNERS" \
     && ok "CODEOWNERS trägt ein Konto" || nichtok "CODEOWNERS trägt ein Konto"
+[ -f "$a/.vscode/tasks.json" ] && [ -f "$a/.vscode/settings.json" ] && [ -f "$a/.vscode/extensions.json" ] \
+    && grep -q 'composer check' "$a/.vscode/tasks.json" \
+    && ok ".vscode/ des Stacks angelegt (Aufgabe ruft composer check)" || nichtok ".vscode/ des Stacks angelegt (Aufgabe ruft composer check)"
 grep -q 'Stufe 2: Dockerfile' "$a/docs/decisions/0001-aufnahme-firmenstandard.md" \
     && ok "ADR nennt die Lücke Dockerfile" || nichtok "ADR nennt die Lücke Dockerfile"
 grep -q 'Stufe 3: Fassung im Produkt' "$a/docs/decisions/0001-aufnahme-firmenstandard.md" \

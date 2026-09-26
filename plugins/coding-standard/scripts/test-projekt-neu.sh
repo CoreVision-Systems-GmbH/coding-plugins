@@ -27,6 +27,30 @@ fehler=0
 ok()     { echo "ok     $1"; }
 nichtok() { echo "FEHLER $1"; fehler=$((fehler + 1)); }
 
+# probe_vscode <projekt> — die drei Editor-Dateien sind gültiges JSON, im Repo verfolgt (nicht
+# von .gitignore geschluckt), und die Aufgaben rufen Skripte, die es im Gerüst gibt.
+probe_vscode() {
+    local p="$1" f fehlt=""
+    for f in settings extensions tasks; do
+        python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" "$p/.vscode/$f.json" 2>/dev/null || fehlt="$fehlt $f.json"
+    done
+    [ -z "$fehlt" ] && ok ".vscode: gültiges JSON" || nichtok ".vscode: gültiges JSON (ungültig:$fehlt)"
+    [ "$(git -C "$p" ls-files .vscode | wc -l)" -eq 3 ] \
+        && ok ".vscode: drei Dateien im Repo verfolgt" || nichtok ".vscode: drei Dateien im Repo verfolgt (gezählt: $(git -C "$p" ls-files .vscode | wc -l))"
+    # Unter Windows endet die Python-Ausgabe mit \r — das machte aus deploy/dev.sh eine fremde Datei;
+    # und ein Python-Fehler darf nicht als leere Liste durchgehen.
+    local roh
+    if roh="$(python -c "import json,sys,re; [print(m) for t in json.load(open(sys.argv[1], encoding='utf-8'))['tasks'] for m in re.findall(r'(?:scripts|deploy)/[a-z-]+\.sh', t['command'])]" "$p/.vscode/tasks.json" 2>/dev/null)"; then
+        fehlt=""
+        for f in $(printf '%s\n' "$roh" | tr -d '\r' | sort -u); do
+            [ -f "$p/$f" ] || fehlt="$fehlt $f"
+        done
+        [ -z "$fehlt" ] && ok ".vscode/tasks.json: alle gerufenen Skripte vorhanden" || nichtok ".vscode/tasks.json: alle gerufenen Skripte vorhanden (fehlt:$fehlt)"
+    else
+        nichtok ".vscode/tasks.json: alle gerufenen Skripte vorhanden (tasks.json nicht lesbar oder ohne tasks)"
+    fi
+}
+
 # probe_komplexitaet <projekt> [werkzeug] — das Gerüst ist ohne Befund, und das genannte Werkzeug
 # ist wirklich gelaufen („== ruff“, „== PHPMD“): ein fehlendes Werkzeug wäre sonst stilles Grün.
 probe_komplexitaet() {
@@ -157,6 +181,7 @@ for datei in CLAUDE.md README.md CHANGES.md LICENSE version.txt .gitignore \
              .github/workflows/claude-review.yml \
              docs/status.md docs/decisions/0001-projektstart.md \
              scripts/beispiel.sh scripts/beispiel.py scripts/check.sh scripts/komplexitaet-pruefen.sh \
+             .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
              tests/test_beispiel.py tests/test_beispiel_sh.sh; do
     [ -f "$pdir/$datei" ] && ok "vorhanden: $datei" || nichtok "fehlt: $datei"
 done
@@ -226,6 +251,7 @@ else
         || nichtok "scripts/check.sh: rot nur wegen fehlender Werkzeuge (Status $status): $ausgabe"
 fi
 probe_komplexitaet "$pdir" ruff
+probe_vscode "$pdir"
 # Ohne Git-Repo kein stilles Grün: check.sh wechselt in seinen eigenen Projektordner, deshalb
 # eine Kopie in einen losen Ordner legen; die Meldung muss den Grund nennen.
 mkdir -p "$tmp/losgeloest/scripts" && cp "$pdir/scripts/check.sh" "$tmp/losgeloest/scripts/"
@@ -270,6 +296,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              tests/conftest.py tests/test_health.py \
              deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
              deploy/smoke.sh deploy/smoke.txt scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
+             .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
              scripts/release-notes.sh scripts/check.sh \
              .github/workflows/tests.yml .github/workflows/release.yml .github/workflows/nightly.yml; do
     [ -f "$pdir/$datei" ] && ok "vorhanden: $datei" || nichtok "fehlt: $datei"
@@ -303,6 +330,7 @@ printf '%s\n' "$ausgabe" | grep -qE 'Komplexität: [1-9][0-9]* Befund' \
     || nichtok "scripts/komplexitaet-pruefen.sh: 15 Zweige sind ein Befund (Status $status): $(printf '%s\n' "$ausgabe" | tail -2 | tr '\n' ' ')"
 rm -f "$pdir/app/zu_gross.py"
 probe_konfig_lizenzen "$pdir"
+probe_vscode "$pdir"
 # Verbund gegen docker compose prüfen, wo es das gibt (CI-Läufer): gültig mit gesetzten
 # Pflichtvariablen, verweigert ohne sie (`:?`). Die .env dafür kommt aus .env.example und
 # verschwindet wieder — sie gehört nicht ins Repo.
@@ -358,6 +386,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              tests/e2e/playwright.config.ts tests/e2e/smoke.spec.ts tests/e2e/sweep.spec.ts tests/e2e/tsconfig.json \
              deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
              deploy/smoke.sh deploy/smoke.txt scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
+             .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
              scripts/release-notes.sh \
              .github/workflows/tests.yml .github/workflows/release.yml \
              .github/dependabot.yml \
@@ -378,6 +407,7 @@ grep -q 'ghcr.io/musterorg/probe-astro' "$pdir/compose.yaml" \
     || nichtok "compose.yaml zeigt auf das richtige Abbild"
 probe_komplexitaet "$pdir"
 probe_konfig_lizenzen "$pdir"
+probe_vscode "$pdir"
 (cd "$pdir" && bash deploy/smoke.sh --dry-run) | grep -q '^/healthz .*Status 200' \
     && ok "deploy/smoke.sh --dry-run listet die Routen" || nichtok "deploy/smoke.sh --dry-run listet die Routen"
 [ "$(git -C "$pdir" ls-files -s deploy/smoke.sh | cut -c1-6)" = "100755" ] \
@@ -461,6 +491,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              docker/sprachpakete.php \
              deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
              deploy/smoke.sh deploy/smoke.txt scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
+             .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
              scripts/release-notes.sh \
              .github/workflows/tests.yml .github/workflows/release.yml \
              .github/dependabot.yml; do
@@ -480,6 +511,7 @@ grep -q 'ghcr.io/musterorg/probe-wordpress' "$pdir/compose.yaml" \
     || nichtok "compose.yaml zeigt auf das richtige Abbild"
 probe_komplexitaet "$pdir" PHPMD
 probe_konfig_lizenzen "$pdir"
+probe_vscode "$pdir"
 (cd "$pdir" && bash deploy/smoke.sh --dry-run) | grep -q '^/healthz .*Status 200' \
     && ok "deploy/smoke.sh --dry-run listet die Routen" || nichtok "deploy/smoke.sh --dry-run listet die Routen"
 [ "$(git -C "$pdir" ls-files -s deploy/smoke.sh | cut -c1-6)" = "100755" ] \

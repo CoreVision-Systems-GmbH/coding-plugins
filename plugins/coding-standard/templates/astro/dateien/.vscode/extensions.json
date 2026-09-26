@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "anthropic.claude-code",
+    "ms-vscode-remote.remote-ssh",
+    "editorconfig.editorconfig",
+    "streetsidesoftware.code-spell-checker",
+    "streetsidesoftware.code-spell-checker-german",
+    "davidanson.vscode-markdownlint",
+    "redhat.vscode-yaml",
+    "timonwong.shellcheck",
+    "ms-azuretools.vscode-containers",
+    "astro-build.astro-vscode",
+    "ms-playwright.playwright"
+  ]
+}
