@@ -5,10 +5,11 @@ name: nightly
 # WARN mit Termin, kein Tor (`continue-on-error`): Sie stehen in `docs/status.md` unter
 # „Rückstände“. Von Hand: Actions → nightly → Run workflow.
 #
-# Sobald der Dienst eine Datenbank hat: zweiter Auftrag `betriebsdatenbank` mit einem
-# PostgreSQL-Service (Vorbild: templates/laravel/dateien/.github/workflows/nightly.yml),
-# der die Migrationen (alembic upgrade head) und die DB-nahen Tests gegen die echte
-# Datenbank fährt — der Standardlauf nutzt SQLite.
+# Sobald der Dienst Migrationen (Alembic) und DB-nahe Tests hat: zweiter Auftrag
+# `betriebsdatenbank` mit einem PostgreSQL-18-Service (Vorbild:
+# templates/laravel/dateien/.github/workflows/nightly.yml), der die Migrationen
+# (alembic upgrade head) und die DB-nahen Tests gegen die echte Datenbank fährt — der
+# Standardlauf nutzt SQLite bzw. Fixtures.
 
 on:
   schedule:

@@ -293,7 +293,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              app/main.py app/settings.py app/schemas.py \
              app/modules/beispiel/router.py app/modules/beispiel/service.py \
              app/modules/beispiel/schemas.py \
-             tests/conftest.py tests/test_health.py \
+             tests/conftest.py tests/test_health.py tests/test_settings.py \
              deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
              deploy/smoke.sh deploy/smoke.txt scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
              .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
@@ -315,12 +315,26 @@ awk '/^## Befehle/{f=1;next} f&&/^\|/&&!/^\| Zweck/&&!/^\| *-/{print;exit}' "$pd
 
 grep -q 'env_prefix="FASTAPI_"' "$pdir/app/settings.py" \
     && ok "ENV-Präfix abgeleitet (FASTAPI_)" || nichtok "ENV-Präfix abgeleitet (FASTAPI_)"
-grep -q 'Datenbank: SQLite (Datei unter DATA_DIR)\.' "$pdir/CLAUDE.md" \
-    && ok "CLAUDE.md nennt die Zieldatenbank aus stack.conf" \
-    || nichtok "CLAUDE.md nennt die Zieldatenbank aus stack.conf"
+grep -q 'Datenbank: PostgreSQL 18\.' "$pdir/CLAUDE.md" \
+    && ok "CLAUDE.md nennt die Zieldatenbank aus stack.conf (PostgreSQL 18)" \
+    || nichtok "CLAUDE.md nennt die Zieldatenbank aus stack.conf (PostgreSQL 18)"
 grep -q 'ghcr.io/musterorg/probe-fastapi' "$pdir/compose.yaml" \
     && ok "compose.yaml zeigt auf das richtige Abbild" \
     || nichtok "compose.yaml zeigt auf das richtige Abbild"
+# Datenbank ist PostgreSQL (Kern): Dienst db im internen Netz, die App wartet auf ihn, die
+# Sicherung zieht einen Abzug, das Passwort bleibt im Schema leer.
+grep -q 'image: postgres:18-alpine' "$pdir/compose.yaml" \
+    && grep -q 'condition: service_healthy' "$pdir/compose.yaml" \
+    && grep -q 'container_name: probe-fastapi-dev-db' "$pdir/compose.dev.yaml" \
+    && ok "compose: PostgreSQL 18 als Dienst db, App wartet auf ihn, eigener Name in der Dev-Instanz" \
+    || nichtok "compose: PostgreSQL 18 als Dienst db, App wartet auf ihn, eigener Name in der Dev-Instanz"
+grep -q 'pg_dump -U "\$DB_USERNAME" -d "\$DB_DATABASE" -Fc' "$pdir/deploy/backup.sh" \
+    && grep -q '/\*\.dump' "$pdir/deploy/update.sh" \
+    && ok "deploy/backup.sh sichert die Datenbank, update.sh nennt den Abzug im Rückweg" \
+    || nichtok "deploy/backup.sh sichert die Datenbank, update.sh nennt den Abzug im Rückweg"
+grep -q '^DB_PASSWORD=$' "$pdir/.env.example" && grep -q '^DB_DATABASE=probe_fastapi$' "$pdir/.env.example" \
+    && ok ".env.example: DB_-Schlüssel ohne Präfix, Passwort leer" \
+    || nichtok ".env.example: DB_-Schlüssel ohne Präfix, Passwort leer"
 probe_komplexitaet "$pdir" ruff
 # Positivfall: 15 Zweige sind ein Befund — heute als WARN (Exit 0), ab 2027-01-01 rot.
 { printf 'def zu_gross(x: int) -> int:\n'; for i in $(seq 1 15); do printf '    if x == %s:\n        return %s\n' "$i" "$i"; done; printf '    return 0\n'; } > "$pdir/app/zu_gross.py"
@@ -343,6 +357,12 @@ if docker compose version >/dev/null 2>&1; then
     (cd "$pdir" && docker compose --env-file /dev/null -f compose.yaml config -q >/dev/null 2>&1) \
         && nichtok "compose.yaml verweigert den Start ohne Pflichtvariablen" \
         || ok "compose.yaml verweigert den Start ohne Pflichtvariablen"
+    # Die .env aus dem Schema hat DB_PASSWORD leer — genau das muss der Dienst db abweisen.
+    ausgabe="$(cd "$pdir" && APP_VERSION=probe docker compose -f compose.yaml config -q 2>&1)" \
+        && nichtok "compose.yaml verweigert den Start mit leerem DB_PASSWORD" \
+        || { printf '%s' "$ausgabe" | grep -q 'DB_PASSWORD fehlt' \
+            && ok "compose.yaml verweigert den Start mit leerem DB_PASSWORD" \
+            || nichtok "compose.yaml verweigert den Start mit leerem DB_PASSWORD: $ausgabe"; }
     rm -f "$pdir/.env"
 else
     echo "skip   compose.yaml gegen docker compose (kein docker auf diesem Rechner)"

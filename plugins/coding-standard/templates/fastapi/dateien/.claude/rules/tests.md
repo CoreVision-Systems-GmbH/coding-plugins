@@ -34,7 +34,8 @@ paths: ['tests/**']
   Filter sitzt zentral (Abhängigkeit, Repository), nie von Hand je Abfrage.
 - **Synthetische Testdaten:** Faker `de_AT`, Adressen nur `example.org` & Co. (gitleaks meldet
   echte Domänen und IBANs unter `tests/`), keine echt wirkenden Personen, nie ein Auszug aus
-  Produktion. Die Testdatenbank ist SQLite bzw. ein Fixture — nie die Datenbank aus der `.env`.
+  Produktion. Die Testdatenbank ist SQLite bzw. ein Fixture — nie die Datenbank aus der `.env`;
+  `tests/conftest.py` verdrahtet die `DB_`-Werte deshalb fest auf `test.invalid`.
 - **Regressionsliste:** Jeder behobene Fehler wird ein benannter Dauerprüfpunkt — der Testname
   nennt Vorfall und Fassung: `test_rundet_kaufmaennisch_vorfall_2026_09_25_v1_4_2`.
 - **Grenzwerte selbst testen:** Bei `>= 18` prüft der Test 17, 18 und 19 — nicht 20. Eine

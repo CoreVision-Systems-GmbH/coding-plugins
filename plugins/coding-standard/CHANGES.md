@@ -7,6 +7,54 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.2.0] — 2026-09-26
+
+### Geändert
+
+- **Tailscale: ein eigenes Tailnet je Server.** Jeder Spark (Rechner für lokale Modelle) und
+  jeder Linux-Server meldet Tailscale mit einem eigenen GitHub-Konto an und ist der einzige Host
+  in seinem Tailnet. Wer einrichtet, teilt ihn zuerst sich selbst; wer Zugriff bekommt, dem wird
+  der Server aus dessen Admin-Konsole geteilt (Sharing); Entzug heißt Freigabe widerrufen. Kochbuch (`EINRICHTUNG.md` A.6.5, B.1, B.2) und der Handgriff von
+  `setup-server.sh` beschreiben das; statt einer Einladung ins Tailnet von CoreVision bekommen
+  Programmierer die Freigabe je Server.
+- **Datenbank ist PostgreSQL** — jetzt als Regel im Kern: Betriebsdatenbank ist PostgreSQL 18,
+  auch für kleine interne Dienste; einzige Ausnahme ist MariaDB für WordPress. SQLite nur als
+  Testdatenbank im PR-Lauf und in Skripten ohne Dienst. Jede andere Datenbank braucht eine ADR
+  im Projekt; im Bestand wird sie beim nächsten größeren Umbau abgelöst, nicht auf Termin. Die
+  Laravel-Vorlage nennt jetzt überall PostgreSQL 18 (vorher stand in der `CLAUDE.md` neuer
+  Projekte 17, während Compose und Nachtprüfung schon 18 nutzten).
+- **`/projekt-aufnehmen` erkennt die Datenbank des Bestands** (Compose-Abbild,
+  `DB_CONNECTION`, `DATABASE_URL`) und trägt sie so in die `CLAUDE.md` ein, wie sie ist —
+  bisher stand dort immer die Datenbank der Vorlage, auch bei einem Laravel-Projekt auf MySQL.
+  Eine Abweichung ohne ADR erscheint als Lücke im Betriebsvertrag.
+- **`database-reviewer`** meldet eine neu eingeführte Datenbank ohne ADR als HIGH und eine
+  falsche Zieldatenbank in der `CLAUDE.md` als MEDIUM.
+- **FastAPI-Vorlage mit PostgreSQL:** Neue FastAPI-Projekte bringen den Dienst `db`
+  (PostgreSQL 18, gehärtet wie Laravel, nur im internen Netz) mit; der Dienst startet erst,
+  wenn die Datenbank bereit ist. `.env.example` hat die Schlüssel `DB_*` (Passwort leer, aus
+  dem Tresor), `app/settings.py` liest sie und liefert `database_url` für SQLAlchemy und
+  Alembic — fehlt das Passwort oder ist es leer, bricht der Start ab, ohne dass die
+  Fehlermeldung Werte der Konfiguration zeigt. Der Treiber psycopg ist gepinnt (die
+  Lizenzprüfung meldet ihn als erwartete LGPL-Warnung). `deploy/backup.sh` zieht vor jedem
+  Update einen `pg_dump`-Abzug, `update.sh` nennt ihn im Rückweg. Die Testsuite verdrahtet die
+  Datenbankwerte fest auf `test.invalid` und prüft Pflichtwerte und Maskierung der Adresse.
+  Bisher nutzte die Vorlage SQLite unter `DATA_DIR`; `DATA_DIR` bleibt für Dateien. Bestehende
+  FastAPI-Projekte übernehmen den Dienst bei Anlass (siehe Kern: Datenbank ist PostgreSQL).
+
+### Behoben
+
+- **Aktualisierung traf den falschen Eintrag:** `claude plugin update` ohne `--scope` hebt in
+  einem Projektordner mit eigenem Eintrag nur diesen — geladen wird aber der Eintrag im
+  User-Scope. So meldete das Update nach Release 1.0.0 Erfolg, und die Sessions liefen weiter
+  mit 0.9.1. Die Einrichtung (`setup.sh`, `setup.ps1`) und alle Anleitungen (README,
+  `EINRICHTUNG.md`, README des Verteil-Repos) rufen jetzt
+  `claude plugin update coding-standard@corevision --scope user`. Steht der Standard nur als
+  Projekt-Eintrag eines geklonten Repos auf dem Gerät, zählt das für die Einrichtung nicht mehr
+  als installiert: Sie legt den User-Eintrag an, `--check` meldet sein Fehlen. Außerdem
+  richtiggestellt: Die automatische Aktualisierung prüft nicht beim Start, sondern einmal je
+  Session nach der ersten Nachricht; eine Session, die tagelang offen bleibt, arbeitet so lange
+  mit dem alten Stand.
+
 ## [1.1.0] — 2026-09-25
 
 ### Hinzugefügt

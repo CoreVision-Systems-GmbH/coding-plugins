@@ -34,7 +34,8 @@
 #   /opt/edge mit Edge-Caddy (gebaut aus server/edge/Dockerfile), Netz `edge`, die Befehle
 #   edge-site und rollout unter /usr/local/bin, sudo-Regel für die Gruppe docker.
 #
-# Was es NICHT tut: `tailscale up` (Anmeldung im Browser), Benutzer anlegen, Anwendungen
+# Was es NICHT tut: `tailscale up` (Anmeldung im Browser mit dem GitHub-Konto des Servers — eigenes
+# Tailnet je Server, Zugriff über Sharing, EINRICHTUNG.md B.2), Benutzer anlegen, Anwendungen
 # einrichten (dafür deploy/install.sh bzw. deploy/dev.sh der Anwendung), etwas löschen.
 # Rückweg: docker compose -f /opt/edge/compose.yaml down; ufw disable; Pakete mit apt remove.
 
@@ -337,7 +338,7 @@ else fehlt "Docker mit Compose"; fi
 wartet_auf_tailscale=0
 if [ -n "$ts_ip" ]; then ok "Tailscale verbunden ($ts_ip)"
 else
-    handgriff "Tailscale anmelden: sudo tailscale up  (Link im Browser öffnen), dann dieses Skript erneut starten"
+    handgriff "Tailscale anmelden: sudo tailscale up  (Link im Browser öffnen, mit dem GitHub-Konto dieses Servers — eigenes Tailnet, EINRICHTUNG.md B.2), dann dieses Skript erneut starten"
     [ "$rolle" = dev ] && wartet_auf_tailscale=1
 fi
 if ufw status 2>/dev/null | grep -q "Status: active"; then ok "ufw aktiv"; else fehlt "ufw aktiv"; fi

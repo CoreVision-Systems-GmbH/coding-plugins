@@ -4,9 +4,14 @@
 # eigener Pull Request (Dependabot, Ökosystem "pip") — nie ein Nebeneffekt
 # einer Neuinstallation.
 #
-# Stand: 2026-09-11
+# Stand: 2026-09-26
 
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 pydantic==2.13.5
 pydantic-settings==2.15.0
+# Treiber für PostgreSQL (Kern: Datenbank ist PostgreSQL), zugleich der
+# Standardtreiber von SQLAlchemy und Alembic. LGPL-3.0: Die Lizenzprüfung meldet
+# das als erwartete Warnung „schwaches Copyleft“ — eingebunden wird die
+# Bibliothek unverändert.
+psycopg[binary]==3.3.6

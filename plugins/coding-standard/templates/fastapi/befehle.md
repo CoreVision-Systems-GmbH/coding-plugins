@@ -13,5 +13,7 @@
 | Dev-Instanz (Dev-Server)          | `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>`    |
 
 `scripts/check.sh` nimmt das Python aus `.venv`, die Umgebung muss dafür nicht aktiviert sein;
-die CI führt denselben Befehl aus. Der Dienst antwortet unter `/healthz` mit der
+die CI führt denselben Befehl aus. „Lokal starten“ braucht eine `.env` aus `.env.example` mit
+gesetztem `DB_PASSWORD` — ohne sie bricht der Start ab; für `/healthz` muss die Datenbank nicht
+laufen. Die Tests brauchen keine `.env`, sie verdrahten ihre Werte selbst. Der Dienst antwortet unter `/healthz` mit der
 ausgelieferten Fassung; die Schnittstelle beschreibt sich selbst unter `/docs`.

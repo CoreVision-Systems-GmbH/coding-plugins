@@ -19,8 +19,8 @@
 #                      .claude/rules des Stacks.
 #   2 Lieferweg        Dockerfile, compose, deploy/, release.yml — wird nur berichtet, mit
 #                      der Vorlage als Verweis; das ist Arbeit für einen eigenen PR.
-#   3 Betriebsvertrag  Fassung im Produkt, Health, TrustProxies, Prüfbefehle — wird nur
-#                      berichtet, je Stack aus dem Overlay abgeleitet.
+#   3 Betriebsvertrag  Fassung im Produkt, Health, TrustProxies, Prüfbefehle, Datenbank —
+#                      wird nur berichtet, je Stack aus dem Overlay abgeleitet.
 #
 # Deterministisch, fragt nichts nach. Die Stack-Erkennung kommt aus dem SessionStart-Hook
 # (standard-context.sh --stacks), damit es sie nur an einer Stelle gibt.
@@ -111,6 +111,68 @@ json_scripts() { # <json-datei>
 # Datei vorhanden und Muster darin? — für den Betriebsvertrag.
 hat() { # <datei relativ zu DIR> <ERE>
     [ -f "$DIR/$1" ] && grep -qE -- "$2" "$DIR/$1" 2>/dev/null
+}
+
+# Betriebsdatenbank des Bestands: postgresql, mariadb, mysql, sqlite, sqlsrv, mongodb oder
+# nichts. Das Compose-Abbild ist die Wahrheit im Betrieb und geht vor; .env.example sagt,
+# womit die Anwendung spricht (Laravel: DB_CONNECTION, sonst DATABASE_URL). Testdatenbanken
+# bleiben außen vor — phpunit.xml ebenso wie Schlüssel mit TEST im Namen (TEST_DATABASE_URL).
+datenbank_erkennen() {
+    local f bild name
+    for f in compose.yaml compose.yml docker-compose.yml docker-compose.yaml; do
+        [ -f "$DIR/$f" ] || continue
+        while IFS= read -r bild; do
+            # ${DB_IMAGE:-mysql:8.4} → mysql:8.4
+            bild="${bild#\$\{*:-}"; bild="${bild%\}}"
+            case "$bild" in *mssql/server*) printf sqlsrv; return ;; esac
+            name="${bild##*/}"; name="${name%%[:@]*}"
+            case "$name" in
+                postgres|postgresql|postgis|pgvector|timescaledb*) printf postgresql; return ;;
+                mariadb) printf mariadb; return ;;
+                mysql|mysql-server) printf mysql; return ;;
+                mongo) printf mongodb; return ;;
+            esac
+        done < <(sed -nE "s/^[[:space:]]*image:[[:space:]]*[\"']?([^\"'[:space:]]+).*/\1/p" "$DIR/$f")
+    done
+    [ -f "$DIR/.env.example" ] || return 0
+    case "$(sed -nE "s/^DB_CONNECTION=[\"']?([a-z]+).*/\1/p" "$DIR/.env.example" | head -n 1)" in
+        pgsql)   printf postgresql; return ;;
+        mariadb) printf mariadb; return ;;
+        mysql)   printf mysql; return ;;
+        sqlite)  printf sqlite; return ;;
+        sqlsrv)  printf sqlsrv; return ;;
+        mongodb) printf mongodb; return ;;
+    esac
+    case "$(grep -vE '^[A-Z0-9_]*TEST[A-Z0-9_]*=' "$DIR/.env.example" \
+            | sed -nE "s/^[A-Z0-9_]*DATABASE_URL=[\"']?([a-z0-9+]+):.*/\1/p" | head -n 1)" in
+        postgres|postgresql|postgresql+*) printf postgresql ;;
+        mariadb|mariadb+*)                printf mariadb ;;
+        mysql|mysql+*)                    printf mysql ;;
+        sqlite|sqlite+*)                  printf sqlite ;;
+        mongodb|mongodb+*)                printf mongodb ;;
+    esac
+}
+
+datenbank_name() { # <kennung>
+    case "$1" in
+        postgresql) printf PostgreSQL ;; mariadb) printf MariaDB ;; mysql) printf MySQL ;;
+        sqlite) printf SQLite ;; sqlsrv) printf 'SQL Server' ;; mongodb) printf MongoDB ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+# Erste ADR des Projekts, deren Titel die Datenbank nennt — eine beiläufige Erwähnung im Text
+# („weg von MySQL“) begründet keine Abweichung. Die ADR der Aufnahme und die Vorlage zählen nicht.
+datenbank_adr() { # <anzeigename>
+    local adr titel
+    for adr in "$DIR"/docs/decisions/[0-9][0-9][0-9][0-9]-*.md; do
+        [ -f "$adr" ] || continue
+        case "$adr" in *aufnahme-firmenstandard.md|*/0000-*) continue ;; esac
+        titel="$(grep -m 1 '^# ' "$adr" || true)"
+        if printf '%s' "$titel" | grep -qiw -- "$1"; then
+            printf '%s' "${adr#"$DIR"/}"; return
+        fi
+    done
 }
 
 # Ein Prüfpunkt der Bestandsaufnahme. Fehlendes aus Stufe 2 und 3 wandert in LUECKEN
@@ -404,6 +466,27 @@ case "$STACK" in
         zeile "kein Stack — Betriebsvertrag nicht prüfbar; Kern-Regeln gelten trotzdem"
         ;;
 esac
+# Datenbank (Kern, „Umsetzen“): PostgreSQL, einzige Ausnahme MariaDB für WordPress, SQLite nur
+# in Skripten ohne Dienst. Begründet ist eine Abweichung, wenn eine ADR des Projekts die
+# Datenbank im Titel nennt — die ADR der Aufnahme zählt nicht, sie listet sie nur als Lücke.
+DB_IST="$(datenbank_erkennen)"
+case "$STACK" in wordpress) db_soll=mariadb ;; *) db_soll=postgresql ;; esac
+DB_ABWEICHUNG=""
+if [ -n "$DB_IST" ]; then
+    db_ist_name="$(datenbank_name "$DB_IST")"; db_soll_name="$(datenbank_name "$db_soll")"
+    if [ "$DB_IST" = "$db_soll" ] || { [ "$STACK" = script ] && [ "$DB_IST" = sqlite ]; }; then
+        pruefe 3 0 "Datenbank: $db_ist_name (Standard)"
+    else
+        db_adr="$(datenbank_adr "$db_ist_name")"
+        if [ -n "$db_adr" ]; then
+            DB_ABWEICHUNG="begründet in $db_adr"
+            pruefe 3 0 "Datenbank: $db_ist_name statt $db_soll_name — Abweichung $DB_ABWEICHUNG"
+        else
+            DB_ABWEICHUNG="ADR fehlt"
+            pruefe 3 1 "Datenbank: $db_ist_name statt $db_soll_name — Abweichung in einer ADR begründen, Wechsel beim nächsten größeren Umbau"
+        fi
+    fi
+fi
 [ -z "$AUSNAHME" ] || zeile "Next.js: Auflagen aus stacks/nextjs.md von Hand prüfen (standalone, eine Instanz, Proxy ohne Puffer, Laravel als Identitätsquelle)"
 
 meldung "Zusammenfassung"
@@ -484,6 +567,18 @@ adr_nummer() {
 - keine — alles vorhanden."
 
 ADR_NR="$(adr_nummer)"
+
+# Die CLAUDE.md nennt die Datenbank, die der Bestand hat — nicht die der Vorlage; Claude
+# übernimmt sie von dort (Kern) und soll nicht gegen PostgreSQL schreiben, wo MySQL läuft.
+if [ -n "$DB_ABWEICHUNG" ]; then
+    DATABASE="$(datenbank_name "$DB_IST") — Abweichung vom Standard ($(datenbank_name "$db_soll")), $DB_ABWEICHUNG"
+elif [ -n "$DB_IST" ]; then
+    # Gleiche Datenbank wie die Vorlage: deren Wert samt Fassung behalten („PostgreSQL 18“).
+    case "$DATABASE" in
+        "$(datenbank_name "$DB_IST")"*) ;;
+        *) DATABASE="$(datenbank_name "$DB_IST")" ;;
+    esac
+fi
 
 declare -A ERSATZ=(
     [NAME]="$NAME"

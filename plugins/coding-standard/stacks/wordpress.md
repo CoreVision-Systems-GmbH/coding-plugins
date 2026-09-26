@@ -13,7 +13,7 @@ Ergänzt den Kern für redaktionell gepflegte Websites: Firmenseite, Landingpage
 ## 2. Grenzen (nicht verhandelbar)
 - **Kein Code aus dem Admin.** `DISALLOW_FILE_MODS`, `DISALLOW_FILE_EDIT` und abgeschaltete Auto-Updates gelten in jeder Umgebung, auch lokal. Kern, Plugins, Themes und Sprachpakete kommen nur über Composer und das Abbild. Was der Admin nicht installieren kann, kann auch ein gekaperter Admin nicht.
 - **Keine Anwendung auf WordPress.** Anmeldung für Endnutzer, Mitgliederbereich, Shop (WooCommerce), Formulare mit Datenhaltung, Schnittstellen zu Firmensystemen → `laravel`. WordPress ist die Website, nicht das Produkt. Ein Kontaktformular ist erlaubt, solange es nur versendet und nichts speichert.
-- **Datenbank ist MariaDB**, nicht PostgreSQL — WordPress kennt nichts anderes tragfähig. Bewusste Abweichung vom Firmenstandard, gilt nur für diesen Stack; kein anderes System greift auf diese Datenbank zu.
+- **Datenbank ist MariaDB**, nicht PostgreSQL — WordPress kennt nichts anderes tragfähig. Die einzige Ausnahme von der Datenbankregel des Kerns, gilt nur für diesen Stack; kein anderes System greift auf diese Datenbank zu.
 - Keine Secrets im Repo oder Abbild: Salts, Datenbank- und Admin-Passwort stehen in der `.env` der Instanz und im KeePassXC-Tresor. Sicherungen sind vertraulich — sie enthalten Nutzerkonten und die Zugangsdaten, die Plugins in `wp_options` ablegen.
 - Keine fremden Skripte ohne Entscheidung (Tracking, Schriften von Drittservern, Einbettungen): Jedes lädt Daten des Besuchers zu einem Dritten — ein Datenschutz-Thema, kein Handgriff. Schriften lokal.
 - XML-RPC aus, Nutzerliste über REST nur angemeldet, kein Generator-Tag, Kommentare und Pingbacks standardmäßig aus (`firmenstandard.php`, `deploy/install.sh`).

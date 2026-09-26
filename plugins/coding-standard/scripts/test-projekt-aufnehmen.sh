@@ -311,6 +311,107 @@ enthaelt "Meldung nennt den bestehenden Hook-Ordner" "core.hooksPath bleibt auf 
 [ -f "$d/.githooks/pre-commit" ] \
     && ok "Hook-Datei trotzdem angelegt (zum Einhängen)" || nichtok "Hook-Datei trotzdem angelegt (zum Einhängen)"
 
+# ------------------------------------------------------ Bestand: Datenbank
+echo
+echo "== Datenbank des Bestands (PostgreSQL, Ausnahme MariaDB für WordPress)"
+grep -q 'Datenbank: PostgreSQL 18\.' "$a/CLAUDE.md" \
+    && ok "ohne erkennbare Datenbank: CLAUDE.md nennt die der Vorlage (PostgreSQL 18)" \
+    || nichtok "ohne erkennbare Datenbank: CLAUDE.md nennt die der Vorlage (PostgreSQL 18)"
+
+e="$tmp/bestand-mysql"
+mkdir -p "$e"
+printf '# MySQL\n\nFachanwendung auf MySQL.\n' > "$e/README.md"
+printf 'APP_NAME=Bestand\nDB_CONNECTION=mysql\nDB_HOST=db\n' > "$e/.env.example"
+git_repo "$e"
+lauf 0 "MySQL: Bericht endet mit 0" --dir "$e" --stack laravel
+enthaelt_muster "MySQL statt PostgreSQL wird gemeldet" 'fehlt +Datenbank: MySQL statt PostgreSQL'
+lauf 0 "MySQL: --apply" --dir "$e" --apply --stack laravel --owner musterorg
+grep -q 'Datenbank: MySQL — Abweichung vom Standard (PostgreSQL), ADR fehlt\.' "$e/CLAUDE.md" \
+    && ok "CLAUDE.md nennt MySQL samt Abweichung, nicht die Vorlage" \
+    || nichtok "CLAUDE.md nennt MySQL samt Abweichung, nicht die Vorlage"
+grep -q 'Stufe 3: Datenbank: MySQL statt PostgreSQL' "$e/docs/decisions/0001-aufnahme-firmenstandard.md" \
+    && ok "ADR der Aufnahme listet die Abweichung als Lücke" \
+    || nichtok "ADR der Aufnahme listet die Abweichung als Lücke"
+git -C "$e" add -A && git -C "$e" commit -q -m "chore: Aufnahme"
+lauf 0 "MySQL: Bericht nach der Aufnahme" --dir "$e" --stack laravel
+enthaelt_muster "ADR der Aufnahme zählt nicht als Begründung" 'fehlt +Datenbank: MySQL statt PostgreSQL'
+printf '# 0002 — Zwischenspeicher\n\nRedis statt einer MySQL-Tabelle.\n' > "$e/docs/decisions/0002-cache.md"
+lauf 0 "MySQL mit beiläufiger Erwähnung: Bericht endet mit 0" --dir "$e" --stack laravel
+enthaelt_muster "beiläufige Erwähnung im ADR-Text zählt nicht" 'fehlt +Datenbank: MySQL statt PostgreSQL'
+printf '# 0003 — MySQL bleibt\n\nDer Kunde betreibt die Datenbank selbst.\n' > "$e/docs/decisions/0003-datenbank-mysql.md"
+lauf 0 "MySQL mit ADR: Bericht endet mit 0" --dir "$e" --stack laravel
+enthaelt_muster "ADR mit der Datenbank im Titel begründet die Abweichung" 'ok +Datenbank: MySQL statt PostgreSQL — Abweichung begründet in docs/decisions/0003-datenbank-mysql\.md'
+
+f="$tmp/bestand-compose"
+mkdir -p "$f"
+printf '# Compose\n\nDienst mit Verbund.\n' > "$f/README.md"
+printf 'DB_CONNECTION=sqlite\n' > "$f/.env.example"
+printf 'services:\n    app:\n        image: ghcr.io/musterorg/mysql-abgleich:${APP_VERSION}\n    db:\n        image: "postgres:18-alpine"\n' > "$f/compose.yaml"
+git_repo "$f"
+lauf 0 "Compose: --apply" --dir "$f" --apply --stack laravel --owner musterorg
+enthaelt_muster "Compose-Abbild geht vor .env.example, Anwendungsname zählt nicht" 'ok +Datenbank: PostgreSQL \(Standard\)'
+grep -q 'Datenbank: PostgreSQL 18\.' "$f/CLAUDE.md" \
+    && ok "gleiche Datenbank wie die Vorlage: CLAUDE.md behält deren Fassung (PostgreSQL 18)" \
+    || nichtok "gleiche Datenbank wie die Vorlage: CLAUDE.md behält deren Fassung (PostgreSQL 18)"
+
+m="$tmp/bestand-abbilder"
+mkdir -p "$m"
+printf '# Abbilder\n\nDienst mit Abbild aus einer Variablen.\n' > "$m/README.md"
+printf 'DB_CONNECTION=pgsql\n' > "$m/.env.example"
+printf 'services:\n    db:\n        image: ${DB_IMAGE:-mysql:8.4}\n' > "$m/compose.yaml"
+git_repo "$m"
+lauf 0 "Abbild aus Variable: Bericht endet mit 0" --dir "$m" --stack laravel
+enthaelt_muster "Vorgabe hinter \${VAR:-…} zählt als Abbild" 'fehlt +Datenbank: MySQL statt PostgreSQL'
+printf 'services:\n    db:\n        image: mongo:8\n' > "$m/compose.yaml"
+lauf 0 "MongoDB: Bericht endet mit 0" --dir "$m" --stack laravel
+enthaelt_muster "MongoDB wird gemeldet" 'fehlt +Datenbank: MongoDB statt PostgreSQL'
+
+g="$tmp/bestand-wordpress"
+mkdir -p "$g"
+printf '# Site\n\nWebsite.\n' > "$g/README.md"
+printf 'services:\n    db:\n        image: mariadb:11.8\n' > "$g/compose.yaml"
+git_repo "$g"
+lauf 0 "WordPress mit MariaDB: Bericht endet mit 0" --dir "$g" --stack wordpress
+enthaelt_muster "WordPress mit MariaDB ist Standard" 'ok +Datenbank: MariaDB \(Standard\)'
+printf 'services:\n    db:\n        image: docker.io/library/mysql:8.4\n' > "$g/compose.yaml"
+lauf 0 "WordPress mit MySQL: Bericht endet mit 0" --dir "$g" --stack wordpress
+enthaelt_muster "WordPress mit MySQL wird gemeldet" 'fehlt +Datenbank: MySQL statt MariaDB'
+
+h="$tmp/bestand-sqlite-werkzeug"
+mkdir -p "$h/scripts"
+printf '#!/usr/bin/env bash\necho hallo\n' > "$h/scripts/hallo.sh"
+printf '# Auswertung\n\nWertet Messdaten aus.\n' > "$h/README.md"
+printf 'AUSWERTUNG_DATABASE_URL=sqlite:///data/messwerte.db\n' > "$h/.env.example"
+git_repo "$h"
+lauf 0 "Skript mit SQLite: --apply" --dir "$h" --apply --stack script --owner musterorg
+enthaelt_muster "SQLite im Skript ohne Dienst ist Standard" 'ok +Datenbank: SQLite \(Standard\)'
+grep -q 'Datenbank: SQLite\.' "$h/CLAUDE.md" \
+    && ok "CLAUDE.md nennt SQLite statt „keine“" || nichtok "CLAUDE.md nennt SQLite statt „keine“"
+
+k="$tmp/bestand-ohne-stack"
+mkdir -p "$k"
+printf '# Dienst\n\nEin Dienst ohne Vorlage.\n' > "$k/README.md"
+printf 'DIENST_DATABASE_URL=postgresql+psycopg://dienst@db/dienst\n' > "$k/.env.example"
+git_repo "$k"
+lauf 0 "ohne Stack mit DATABASE_URL: Bericht endet mit 0" --dir "$k"
+enthaelt_muster "DATABASE_URL mit Treiberzusatz erkannt" 'ok +Datenbank: PostgreSQL \(Standard\)'
+printf 'TEST_DATABASE_URL=sqlite:///:memory:\nDIENST_DATABASE_URL=postgresql://dienst@db/dienst\n' > "$k/.env.example"
+lauf 0 "Testdatenbank vor der Betriebsdatenbank: Bericht endet mit 0" --dir "$k"
+enthaelt_muster "TEST_DATABASE_URL zählt nicht als Betriebsdatenbank" 'ok +Datenbank: PostgreSQL \(Standard\)'
+printf 'DIENST_DATABASE_URL=sqlite:///dienst.db\n' > "$k/.env.example"
+lauf 0 "ohne Stack mit SQLite: Bericht endet mit 0" --dir "$k"
+enthaelt_muster "SQLite außerhalb eines Skripts wird gemeldet" 'fehlt +Datenbank: SQLite statt PostgreSQL'
+
+n="$tmp/bestand-fastapi-sqlite"
+mkdir -p "$n"
+printf '# Dienst\n\nFastAPI-Dienst auf SQLite.\n' > "$n/README.md"
+printf 'DIENST_DATABASE_URL=sqlite:///data/dienst.db\n' > "$n/.env.example"
+git_repo "$n"
+lauf 0 "FastAPI mit SQLite: --apply" --dir "$n" --apply --stack fastapi --owner musterorg
+grep -q 'Datenbank: SQLite — Abweichung vom Standard (PostgreSQL), ADR fehlt\.' "$n/CLAUDE.md" \
+    && ok "Abweichung steht in der CLAUDE.md, auch wenn die Vorlage denselben Namen trägt" \
+    || nichtok "Abweichung steht in der CLAUDE.md, auch wenn die Vorlage denselben Namen trägt"
+
 echo
 if [ "$fehler" -eq 0 ]; then
     echo "Alle Fälle grün."

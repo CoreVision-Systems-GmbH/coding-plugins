@@ -69,6 +69,14 @@ nichts. Jeder Befund braucht einen Beleg aus dem Code.
 - Einzelne `INSERT` in einer Schleife statt Stapel-Insert.
 - Zusammengesetzte SQL-Strings mit Nutzereingabe statt Bindings.
 
+**Datenbank des Projekts**
+
+- Betriebsdatenbank ist PostgreSQL; einzige Ausnahme ist MariaDB für WordPress. Führt der Diff
+  eine andere Datenbank ein (Compose-Abbild, `DB_CONNECTION`, `DATABASE_URL`, Treiber) und
+  begründet keine ADR in `docs/decisions/` sie, ist das HIGH. SQLite als Testdatenbank und in
+  Skripten ohne Dienst ist kein Befund.
+- Weicht die Zieldatenbank in der `CLAUDE.md` von der tatsächlichen ab, ist das MEDIUM.
+
 **PostgreSQL-Spezifika**
 
 - `timestamptz` statt `timestamp`; `text` statt `varchar(255)` ohne Grund;

@@ -381,6 +381,16 @@ baustein() {
     installiere "$1" || { befund "$2 ließ sich nicht installieren (siehe Ausgabe oben)"; return 0; }
 }
 
+plugin_im_user_scope() { # <ausgabe von „claude plugin list“>
+    # Geladen wird außerhalb eines Projekts nur der Eintrag im User-Scope — ein Projekt-Eintrag
+    # aus einem anderen Repo zählt nicht (sonst meldet die Einrichtung „installiert“, und
+    # `update --scope user` scheitert still). Ältere Fassungen von Claude Code nennen keinen
+    # Scope; dann genügt der Name.
+    if printf '%s\n' "$1" | grep -A3 -F "$PLUGIN" | grep -q 'Scope: user'; then return 0; fi
+    if printf '%s\n' "$1" | grep -q 'Scope:'; then return 1; fi
+    printf '%s\n' "$1" | grep -q -F "$PLUGIN"
+}
+
 autoupdate_gesetzt() {
     # An ist sie, wenn settings.json sie verlangt oder Claude Code sie schon übernommen hat
     # (known_marketplaces.json, z. B. aus der settings.json eines Projekts).
@@ -571,7 +581,7 @@ pruefen() {
         if [ -d "$d" ]; then ok "Ordner $d"; else fehlt "Ordner $d"; fi
     done
     if vorhanden claude; then
-        if claude plugin list 2>&1 | grep -q "$PLUGIN"; then ok "Plugin $PLUGIN geladen"; else fehlt "Plugin $PLUGIN"; fi
+        if plugin_im_user_scope "$(claude plugin list 2>&1 || true)"; then ok "Plugin $PLUGIN geladen (Scope user)"; else fehlt "Plugin $PLUGIN im User-Scope"; fi
         # Ohne Python kann das Skript die Sperren nicht setzen: Im Normallauf hat lesesperren_setzen
         # den Handgriff schon genannt (nicht doppelt), bei --check ist es ein Befund wie jeder andere.
         if lesesperren_gesetzt; then ok "Lesesperren für Sessions gesetzt (.env, Tresor, Schlüssel, Dumps)"
@@ -679,9 +689,10 @@ if [ $nur_pruefen -eq 0 ]; then
             if [ $trocken -eq 1 ]; then tun "würde hinzufügen: Marketplace $MARKETPLACE"; else tun "füge Marketplace $MARKETPLACE hinzu"; claude plugin marketplace add "$MARKETPLACE"; fi
         fi
         plugins="$(claude plugin list 2>&1 || true)"
-        if printf '%s' "$plugins" | grep -q "$PLUGIN"; then
-            ok "Plugin $PLUGIN installiert"
-            [ $trocken -eq 1 ] || claude plugin update "$PLUGIN" || true
+        if plugin_im_user_scope "$plugins"; then
+            ok "Plugin $PLUGIN installiert (Scope user)"
+            # --scope user: ohne die Angabe hebt der Befehl in einem Projektordner nur dessen Eintrag.
+            [ $trocken -eq 1 ] || claude plugin update "$PLUGIN" --scope user || true
         else
             if [ $trocken -eq 1 ]; then tun "würde installieren: Plugin $PLUGIN (Scope user)"; else tun "installiere Plugin $PLUGIN"; claude plugin install "$PLUGIN" --scope user; fi
         fi

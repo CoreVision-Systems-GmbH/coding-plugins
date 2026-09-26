@@ -5,12 +5,16 @@
 #
 # Kein Port wird nach außen veröffentlicht: Der Edge-Caddy des Servers liegt
 # im selben Netz `edge` und spricht den Anwendungscontainer über seinen Namen
-# an. Alles Übrige hängt nur im internen Netz.
+# an. Die Datenbank hängt ausschließlich im internen Netz und ist von außen
+# nicht erreichbar.
 #
 # Das Abbild wird nicht hier gebaut, sondern aus der Registry geladen: Der
 # Release-Workflow baut es aus einem Tag nach GHCR, `APP_VERSION` in der .env
 # der Instanz bestimmt, welcher Stand läuft. Geändert wird dieser Wert nur
 # über deploy/update.sh — dann steht der Rückweg fest.
+#
+# Pflichtvariablen stehen mit `:?` — fehlt ein Schlüssel in der .env, startet
+# der Verbund nicht, statt mit leerem Passwort loszulaufen.
 #
 # Zum Bauen auf dem eigenen Rechner die Überlagerung dazunehmen:
 #     APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml build
@@ -19,7 +23,8 @@ name: {{NAME}}
 
 # Härtung für jeden Dienst: keine Rechteausweitung, keine Capabilities, Logs
 # rotiert (5 × 20 MB je Container). Das Wurzeldateisystem ist schreibgeschützt;
-# der Dienst schreibt nur nach /data (Volume) und /tmp (tmpfs).
+# der Dienst schreibt nur nach /data (Volume) und /tmp (tmpfs), die Datenbank
+# in ihr Volume.
 x-haertung: &haertung
     security_opt:
         - no-new-privileges:true
@@ -52,16 +57,50 @@ services:
             timeout: 5s
             retries: 5
             start_period: 20s
+        depends_on:
+            db:
+                condition: service_healthy
 
-    # Kommt eine echte Datenbank dazu, gehört sie hierher — ausschließlich im
-    # internen Netz, mit Healthcheck, `depends_on: condition: service_healthy`
-    # beim app-Dienst, Pflichtvariablen mit `:?` und derselben Härtung (das
-    # Postgres-Abbild braucht cap_add CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID
-    # und tmpfs /run/postgresql; Vorbild: templates/laravel). Bis dahin liegen
-    # die Daten als Datei im Volume unter DATA_DIR, und deploy/backup.sh sichert
-    # genau dieses Volume.
+    db:
+        <<: *haertung
+        image: postgres:18-alpine
+        container_name: {{NAME}}-db
+        restart: unless-stopped
+        # Das Postgres-Abbild startet als root, richtet das Datenverzeichnis ein
+        # und wechselt dann zu postgres — dafür braucht es genau diese fünf.
+        cap_add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - FOWNER
+            - SETGID
+            - SETUID
+        read_only: true
+        tmpfs:
+            - /tmp
+            - /run/postgresql
+        environment:
+            POSTGRES_DB: ${DB_DATABASE:?DB_DATABASE fehlt in .env}
+            POSTGRES_USER: ${DB_USERNAME:?DB_USERNAME fehlt in .env}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env — Wert aus dem Tresor}
+            # Deutschsprachige Sortierung für Namen mit Umlauten.
+            POSTGRES_INITDB_ARGS: '--locale-provider=icu --icu-locale=de-AT --encoding=UTF8'
+        volumes:
+            # PostgreSQL 18 legt die Daten in einem versionsbenannten Unterverzeichnis
+            # ab. Der Mount gehört deshalb auf /var/lib/postgresql und nicht auf
+            # .../data — sonst verweigert das Abbild den Start.
+            - db_data:/var/lib/postgresql
+        networks:
+            - internal
+        healthcheck:
+            test:
+                ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}']
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 30s
 
 volumes:
+    db_data:
     app_data:
 
 networks:

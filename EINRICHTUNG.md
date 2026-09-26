@@ -50,7 +50,7 @@ den Standard“, bist du fertig.
 | Ein Benutzerkonto mit Recht auf Installationen | Windows: winget fragt per Benutzerkontensteuerung nach. macOS: Administratorkonto (Homebrew fragt nach deinem Passwort). Linux: `sudo` | deine IT |
 | GitHub-Konto mit **Zwei-Faktor-Anmeldung** | für die Arbeit an unseren Repositories; zum Installieren des Standards nicht nötig | [github.com/signup](https://github.com/signup), 2FA unter Settings → Password and authentication |
 | Claude-Abo mit Claude Code | Pro, Max, Team, Enterprise oder ein Console-Konto (API); der kostenlose Tarif enthält Claude Code nicht | [claude.com/pricing](https://claude.com/pricing) — klären wir mit dir |
-| Einladung ins Tailnet von CoreVision | der Dev-Server ist nur dort erreichbar | bekommst du von CoreVision |
+| Tailscale-Konto und Freigabe des Dev-Servers | der Dev-Server ist nur über Tailscale erreichbar; jeder Server hat sein eigenes Tailnet und wird dir geteilt (B.2) | Konto legst du an, die Freigabe (Sharing) schickt CoreVision |
 | Konto auf dem Dev-Server | dort liegt dein Code | legt CoreVision an, sobald dein öffentlicher SSH-Schlüssel da ist (A.6.5) |
 | Einladung in die Organisation `CoreVision-Systems-GmbH` | Lese- und Schreibrecht auf dein Projekt | bekommst du von CoreVision, sobald dein GitHub-Name bekannt ist |
 | Deine Tresor-Datei (`.kdbx`) | die Geheimnisse deines Projekts (A.6.4) | bekommst du von CoreVision |
@@ -427,7 +427,10 @@ Geheimnisse liegen in KeePassXC — nie im Repository, nie in Chat, Mail oder Ti
 
 ### A.6.5 Tailscale und Dev-Server
 
-1. Tailscale öffnen und mit der Einladung von CoreVision anmelden.
+1. Tailscale öffnen und mit deinem eigenen Konto anmelden. Jeder Server von CoreVision hat sein
+   eigenes Tailnet; die Freigabe (Sharing) für den Dev-Server kommt per Einladung — annehmen,
+   dann erscheint er in deinem Tailnet unter `<server>.tailXXXX.ts.net`. Weitere Server kommen
+   einzeln dazu, Entzug heißt: Freigabe widerrufen (B.2).
 2. Den öffentlichen Schlüssel `~/.ssh/id_ed25519.pub` an CoreVision schicken — daraus entsteht dein
    Konto auf dem Dev-Server (B.5).
 3. In VS Code: Befehlspalette → „Remote-SSH: Connect to Host…“ → `<name>@<dev-server>`, dann
@@ -435,7 +438,7 @@ Geheimnisse liegen in KeePassXC — nie im Repository, nie in Chat, Mail oder Ti
 
    ```
    Host dev
-       HostName <dev-server>        # Tailscale-Name oder 100.x-Adresse
+       HostName <dev-server>        # voller Name <server>.tailXXXX.ts.net oder 100.x-Adresse
        User <name>
    ```
 
@@ -498,9 +501,10 @@ Git-Identität, auf dem Arbeitsplatz Tailscale, VS Code, Remote-SSH und SSH-Schl
 
 Jede neue Fassung erscheint als Release in
 [`CoreVision-Systems-GmbH/coding-plugins`](https://github.com/CoreVision-Systems-GmbH/coding-plugins).
-Mit automatischer Aktualisierung holt Claude Code sie **beim Start einer Session**; sie gilt ab der
-**nächsten** Session. Eingeschaltet über `autoUpdate` in `~/.claude/settings.json` — das Skript
-setzt ihn:
+Mit automatischer Aktualisierung prüft Claude Code **einmal je Session** — nach der ersten
+Nachricht, mit einigen Minuten Verzögerung — und holt sie; sie gilt ab der **nächsten** Session.
+Eine Session, die tagelang offen bleibt, arbeitet so lange mit dem alten Stand. Eingeschaltet über
+`autoUpdate` in `~/.claude/settings.json` — das Skript setzt ihn:
 
 ```json
 "extraKnownMarketplaces": {
@@ -513,12 +517,18 @@ setzt ihn:
 
 Von Hand: `/plugin` → Marketplaces → `corevision` → „Enable auto-update“. Achtung:
 `claude plugin marketplace add` schreibt den Eintrag neu und verliert `autoUpdate` — danach wieder
-einschalten oder das Skript erneut starten. Sofort statt beim nächsten Start:
+einschalten oder das Skript erneut starten. Sofort, von Hand — danach Claude Code neu starten:
 
 ```
 claude plugin marketplace update corevision
-claude plugin update coding-standard@corevision
+claude plugin update coding-standard@corevision --scope user
 ```
+
+`--scope user` gehört dazu: Ohne die Angabe hebt der Befehl in einem Projektordner mit eigenem
+Eintrag nur diesen, geladen wird aber der Eintrag im User-Scope. Steht der Standard nur als
+Projekt-Eintrag auf dem Gerät (Projekt geklont, ohne Einrichtung), scheitert der Befehl — dann
+einmal `claude plugin install coding-standard@corevision --scope user`; das Skript tut das selbst
+und meldet bei `--check` den fehlenden User-Eintrag.
 
 Server-Befehle (`setup-server.sh`, `edge-site`, `rollout`) kommen mit
 `sudo git -C /opt/corevision/standard pull` in neuer Fassung (B.6).
@@ -537,8 +547,8 @@ aus — `--check` meldet eine zu alte Fassung.
 | `python` öffnet den Microsoft Store | App-Ausführungsalias verdeckt das echte Python | Einstellungen → Apps → Erweiterte App-Einstellungen → App-Ausführungsaliase: `python.exe`, `python3.exe` aus |
 | „nicht im Pfad“ direkt nach der Installation | Die laufende Shell kennt neue Programme noch nicht | Neue Shell öffnen, Skript erneut starten |
 | `irm … \| iex` bricht mit „Unerwartetes Attribut CmdletBinding“ ab | Skript mit BOM gespeichert (nur lokale Kopien) | Original-URL verwenden |
-| VS Code: „Could not establish connection“ zum Dev-Server | Tailscale nicht verbunden, Schlüssel nicht hinterlegt | `tailscale status`; Schlüssel an CoreVision (A.6.5) |
-| `https://dev.<domain>` nicht erreichbar | Arbeitsplatz nicht im Tailnet, Dev-Instanz läuft nicht | Tailscale an; auf dem Dev-Server `deploy/dev.sh status`, `sudo edge-site check <domain>` |
+| VS Code: „Could not establish connection“ zum Dev-Server | Tailscale nicht verbunden, Freigabe des Servers fehlt oder wurde widerrufen, Schlüssel nicht hinterlegt | `tailscale status` — fehlt der Server dort, Freigabe bei CoreVision anfragen (A.6.5); Schlüssel an CoreVision |
+| `https://dev.<domain>` nicht erreichbar | Tailscale aus, Freigabe des Dev-Servers fehlt, Dev-Instanz läuft nicht | Tailscale an, `tailscale status` zeigt den Server; auf dem Dev-Server `deploy/dev.sh status`, `sudo edge-site check <domain>` |
 | Beim Start kein Hinweis „Firmenstandard … gilt“ | Ordner nicht vertraut, oder das Projekt erklärt den Standard nicht | Claude Code im Projektordner neu starten und vertrauen |
 | `claude plugin install` findet das Plugin nicht | Marketplace-Kopie veraltet | `claude plugin marketplace update corevision` |
 | Das Skript bricht unter Git Bash ab | `setup.sh` ist nicht für Windows | `setup.ps1` in der PowerShell |
@@ -574,7 +584,7 @@ Docker Compose und Edge-Caddy, auf dem jede Person ein eigenes Konto hat und Anw
 |---|---|
 | Ubuntu **26.04 LTS** (oder 24.04 LTS), frisch, mit root-Zugang | darauf ist `setup-server.sh` gebaut; andere Systeme nach dem Skript von Hand |
 | 4 vCPU, 8–16 GB RAM, 80 GB SSD als Anfang | mehrere Dev-Instanzen samt Datenbanken und Abbild-Bau |
-| Tailnet von CoreVision mit Admin-Zugang | der Dev-Server ist nur dort erreichbar |
+| Ein eigenes GitHub-Konto für diesen Server (mit 2FA, im Tresor) | meldet das eigene Tailnet des Servers an — ein Konto, ein Tailnet, ein Server |
 | Eine Domain und der DNS-Weg aus Teil D | Zertifikate über DNS-01 |
 
 ## B.2 Einrichten
@@ -605,7 +615,12 @@ verdeckt ab — nie als Argument. Was es tut, jeweils nur, wenn es noch fehlt:
    Gruppe `docker` `edge-site` ohne Passwort aufrufen dürfen.
 8. Prüfung — wie `--check`.
 
-**Handgriff:** `sudo tailscale up` (Link im Browser öffnen), dann das Skript erneut starten.
+**Handgriff:** `sudo tailscale up` (Link im Browser öffnen) und **mit dem GitHub-Konto dieses
+Servers** anmelden — so entsteht sein eigenes Tailnet mit ihm als einzigem Host. Teile ihn
+zuerst **dir selbst** (Admin-Konsole des Servers → Machines → Share → Einladung an dein eigenes
+Tailnet annehmen), sonst erreichst du ihn nicht über Tailscale; jede weitere Person mit Zugriff
+bekommt ihre eigene Freigabe, Entzug heißt Freigabe widerrufen. Das gilt genauso für jeden Spark
+(Rechner für lokale Modelle) und jeden anderen Linux-Server. Dann das Skript erneut starten.
 Danach **über das Tailnet** neu verbinden (`ssh <name>@<tailscale-ip>`) und das Skript noch einmal
 starten — erst wenn die Sitzung nachweislich aus dem Tailnet kommt, schließt es SSH nach außen.
 Aus der Konsole des Anbieters oder ohne erkennbare Gegenstelle bleibt Port 22 offen. Kontrolle:

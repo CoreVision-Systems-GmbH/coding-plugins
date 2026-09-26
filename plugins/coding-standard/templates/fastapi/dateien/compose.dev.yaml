@@ -11,3 +11,6 @@
 services:
     app:
         container_name: {{NAME}}-dev-app
+
+    db:
+        container_name: {{NAME}}-dev-db

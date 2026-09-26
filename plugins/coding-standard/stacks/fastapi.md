@@ -6,7 +6,7 @@ Ergänzt den Kern für FastAPI-Dienste (z. B. corevision-mak, corevision-mon). H
 - Paket `app/`: `main.py` (App-Aufbau, Router-Registrierung, `/healthz`), `settings.py` (die **eine** Stelle für Konfiguration), `auth.py` (Zugang), fachliche Module unter `app/modules/<thema>/` mit `router.py`, `service.py`, `schemas.py`, bei Bedarf `repo.py`.
 - Router sind dünn: parsen, autorisieren, an einen Service delegieren, Antwort-Schema zurückgeben. Fachlogik liegt in Services und ist ohne HTTP testbar.
 - Ein- und Ausgaben immer als Pydantic-Modelle (`response_model` setzen); keine rohen Dicts nach außen, keine ORM-Objekte serialisieren.
-- Persistenz: SQLite für kleine interne Werkzeuge (Datei unter `DATA_DIR`), PostgreSQL für Produkte. Schemaänderungen als Migration (Alembic); „CREATE IF NOT EXISTS beim Start“ ist kein Dauerzustand.
+- Persistenz: PostgreSQL (Kern) — auch für kleine interne Werkzeuge; die Vorlage bringt den Dienst `db` mit, `settings.database_url` liefert die Adresse für SQLAlchemy und Alembic (Dialekt psycopg; `psycopg.connect` selbst braucht `postgresql://`). Dateien (Uploads, Exporte) unter `DATA_DIR`. Schemaänderungen als Migration (Alembic) ab der ersten Tabelle; „CREATE IF NOT EXISTS beim Start“ ist kein Dauerzustand.
 - Hintergrundarbeit zuerst über `BackgroundTasks`; bei Wachstum ein Worker-Prozess aus demselben Image — keine Threads im Request.
 
 ## 2. Grenzen (nicht verhandelbar)
@@ -28,7 +28,7 @@ Ergänzt den Kern für FastAPI-Dienste (z. B. corevision-mak, corevision-mon). H
 4. **Logs:** nach stdout, strukturiert (JSON oder Schlüssel=Wert), ohne PII; Docker rotiert.
 5. **Version im Produkt:** Build-Arg `APP_IMAGE_VERSION` → `settings.version` → sichtbar in der `/healthz`-Antwort und im UI-Footer.
 6. **Lieferung:** wie im Kern — `release.yml` → GHCR (`X.Y.Z`, `X.Y`, `sha-…`), Server ziehen per `deploy/update.sh <tag>` (Backup → Pull → Migration → Start → Health), auf dem Prod-Server angestoßen von `rollout`. Dev-Instanz auf dem Dev-Server: `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>`. Nach dem Start prüft `deploy/smoke.sh` die Routen aus `deploy/smoke.txt` (Status, Zeitbudget, Pflichtinhalt): auf der Dev-Instanz eine Warnung, beim Update ein Abbruch mit Rückweg.
-7. **Daten:** SQLite-Dateien und Uploads in einem Volume unter `DATA_DIR`; Backup = `sqlite3 .backup` oder Dateikopie im Ruhezustand; PostgreSQL per `pg_dump -Fc`.
+7. **Daten:** PostgreSQL 18 als Dienst `db` im internen Netz (Volume `db_data`, gehärtet wie der Dienst; das Abbild holt sich `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID` zurück), Dateien im Volume `app_data` unter `DATA_DIR`. `deploy/backup.sh` = `pg_dump -Fc` plus Archiv des Datenbands, vor jedem Update, vierzehn Tage. Die Schlüssel `DB_*` tragen keinen Präfix — Dienst und Datenbank-Container lesen dieselben. Der Treiber psycopg steht unter LGPL-3.0; die Lizenzprüfung meldet ihn als erwartete Warnung.
 8. **Qualitätsgates:** neue Router nur mit Tests für erlaubten **und** verweigerten Zugriff; Fehlerpfade (401/403/404/422) getestet; kein Merge mit offenen `ruff`-Befunden.
 
 ## 5. Fallen (stack-typisch)

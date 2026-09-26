@@ -55,13 +55,16 @@ automatisch — die beiden Befehle oben sind dann nicht nötig.
 
 Neue Fassungen erscheinen als Release in diesem Repository. Mit automatischer
 Aktualisierung (setzt das Einrichtungsskript; in unseren Projekten ohnehin an) holt Claude
-Code sie beim Start einer Session selbst — Einzelheiten in EINRICHTUNG.md, A.9.
-Von Hand geht es so:
+Code sie im Lauf einer Session selbst; sie gilt ab der nächsten — Einzelheiten in
+EINRICHTUNG.md, A.9. Von Hand geht es so, danach Claude Code neu starten:
 
 ```
 claude plugin marketplace update corevision
-claude plugin update coding-standard@corevision
+claude plugin update coding-standard@corevision --scope user
 ```
+
+Scheitert der zweite Befehl, weil der Standard nur aus einem geklonten Projekt kommt: einmal
+`claude plugin install coding-standard@corevision --scope user`.
 
 ## Inhalt
 

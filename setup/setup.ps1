@@ -249,6 +249,17 @@ function Feld($Objekt, [string]$Name) {
     $p = $Objekt.PSObject.Properties[$Name]
     if ($p) { return $p.Value } else { return $null }
 }
+function Plugin-Im-UserScope([string]$Liste) {
+    # Geladen wird außerhalb eines Projekts nur der Eintrag im User-Scope — ein Projekt-Eintrag
+    # aus einem anderen Repo zählt nicht (sonst meldet die Einrichtung „installiert“, und
+    # `update --scope user` scheitert still). Ältere Fassungen von Claude Code nennen keinen
+    # Scope; dann genügt der Name.
+    $name = [regex]::Escape($Plugin)
+    if ($Liste -match "$name\r?\n(?:.*\r?\n){0,2}?\s*Scope:\s*user") { return $true }
+    if ($Liste -match 'Scope:') { return $false }
+    return ($Liste -match $name)
+}
+
 function AutoUpdate-Gesetzt {
     # An ist sie, wenn settings.json sie verlangt oder Claude Code sie schon übernommen hat
     # (known_marketplaces.json, z. B. aus der settings.json eines Projekts).
@@ -397,7 +408,7 @@ function Pruefen {
     if (Schluessel-Da) { Ok 'SSH-Schlüssel' } else { Fehlt 'SSH-Schlüssel (ssh-keygen -t ed25519)' }
     foreach ($d in @($CodeDir, $TresorDir)) { if (Test-Path $d) { Ok "Ordner $d" } else { Fehlt "Ordner $d" } }
     if (Vorhanden 'claude') {
-        if ((Aufruf 'claude' @('plugin', 'list')).Text -match [regex]::Escape($Plugin)) { Ok "Plugin $Plugin geladen" } else { Fehlt "Plugin $Plugin" }
+        if (Plugin-Im-UserScope (Aufruf 'claude' @('plugin', 'list')).Text) { Ok "Plugin $Plugin geladen (Scope user)" } else { Fehlt "Plugin $Plugin im User-Scope" }
         if (Lesesperren-Gesetzt) { Ok 'Lesesperren für Sessions gesetzt (.env, Tresor, Schlüssel, Dumps)' }
         else { Fehlt "Lesesperren in $ClaudeDir\settings.json (permissions.deny) — der Lauf ohne -Check setzt sie" }
         if (AutoUpdate-Gesetzt) { Ok 'automatische Aktualisierung des Standards an' }
@@ -496,9 +507,9 @@ if (-not $Check) {
         }
 
         $plugins = (Aufruf 'claude' @('plugin', 'list')).Text
-        if ($plugins -match [regex]::Escape($Plugin)) {
-            Ok "Plugin $Plugin installiert"
-            if (-not $DryRun) { & claude plugin update $Plugin | Out-Host }
+        if (Plugin-Im-UserScope $plugins) {
+            Ok "Plugin $Plugin installiert (Scope user)"
+            if (-not $DryRun) { & claude plugin update $Plugin --scope user | Out-Host }  # ohne --scope nur der Projekt-Eintrag
         }
         else {
             if ($DryRun) { Tun "würde installieren: Plugin $Plugin (Scope user)" }

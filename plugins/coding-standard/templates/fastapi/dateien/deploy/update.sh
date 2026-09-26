@@ -9,8 +9,9 @@
 # Kennsatz.
 #
 # Sobald der Dienst Schemaänderungen kennt, gehört der Migrationsaufruf
-# zwischen "Abbild laden" und "Verbund starten" — additiv, mit der Sicherung
-# davor.
+# (`docker compose run --rm app alembic upgrade head`) zwischen "Abbild laden"
+# und "Verbund starten" — additiv, mit der Sicherung davor. Hat eine Migration
+# das Schema schon gehoben, gehört zum Rückweg das Einspielen des Abzugs.
 
 set -euo pipefail
 
@@ -45,7 +46,7 @@ if ! deploy/backup.sh; then
     abbruch "Die Sicherung ist gescheitert. Ohne Sicherung wird nicht aktualisiert."
 fi
 
-sicherung="$(ls -1t "/opt/backups/{{NAME}}"/*.tar.gz 2>/dev/null | head -n 1 || true)"
+sicherung="$(ls -1t "/opt/backups/{{NAME}}"/*.dump 2>/dev/null | head -n 1 || true)"
 
 rueckweg() {
     printf '\nRückweg: deploy/update.sh %s\n' "$alt" >&2
