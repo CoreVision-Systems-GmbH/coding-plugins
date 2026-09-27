@@ -133,6 +133,7 @@ enthaelt_muster "Stufe 2: PR-Text-Schritt fehlt" 'fehlt +tests\.yml: Schritt „
 enthaelt_muster "Stufe 3: Datenschutz-Verzeichnis fehlt, Vorlage genannt" 'fehlt +docs/datenschutz\.md .*← templates/laravel/dateien/docs/datenschutz\.md'
 enthaelt_muster "Stufe 2: SECURITY.md fehlt, Vorlage genannt" 'fehlt +SECURITY\.md .*← templates/repo/SECURITY\.md'
 enthaelt_muster "Stufe 2: security.txt fehlt, Vorlage genannt" 'fehlt +public/\.well-known/security\.txt .*← templates/laravel/dateien/public/\.well-known/security\.txt'
+enthaelt_muster "Stufe 3: Sicherheitsprotokoll fehlt" 'fehlt +Sicherheitsprotokoll: tests/Feature/SicherheitsprotokollTest\.php'
 enthaelt_muster "Stufe 3: Fassung im Produkt fehlt" 'fehlt +Fassung im Produkt'
 enthaelt_muster "Stufe 3: TrustProxies fehlt" 'fehlt +TrustProxies'
 enthaelt_muster "Stufe 3: Härtung fehlt" 'fehlt +compose\.yaml: Härtung'

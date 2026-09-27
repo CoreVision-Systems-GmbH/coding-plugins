@@ -19,7 +19,8 @@ paths: ['app/**']
 - **Kein `shell=True`,** keine zusammengesetzten SQL-Strings, keine Pfadbildung aus
   Nutzereingaben ohne Normalisierung und Prüfung.
 - **Keine personenbezogenen Daten und keine Tokens in Logs.** Logs gehen nach stdout,
-  strukturiert; Docker rotiert.
+  strukturiert; Docker rotiert. Einzige Ausnahme: das Sicherheitsprotokoll (Logger `security`) mit
+  Kennung und IP — Overlay, Betriebsvertrag Punkt 9.
 
 ## Weiteres
 

@@ -57,7 +57,8 @@ dem Code.
 - f-String in einer SQL-Anfrage; `subprocess` mit `shell=True` und Nutzereingabe.
 - `eval`, `exec`, `pickle.loads`, `yaml.load` ohne `SafeLoader` auf fremden Daten.
 - Pfad aus Nutzereingabe ohne Auflösung und Präfix-Prüfung.
-- Secrets im Code; `logging` mit personenbezogenen Daten oder Zugangsdaten.
+- Secrets im Code; `logging` mit personenbezogenen Daten oder Zugangsdaten — außer Kennung und IP
+  im Sicherheitsprotokoll (Logger `security`, Overlay Punkt 9).
 
 **Tests**
 

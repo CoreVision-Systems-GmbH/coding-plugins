@@ -7,6 +7,28 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.4.0] — 2026-09-27
+
+### Hinzugefügt
+
+- **Sicherheitsprotokoll:** Laravel-Projekte schreiben fehlgeschlagene Anmeldungen, Sperren nach
+  zu vielen Versuchen und Rechteänderungen in einen eigenen Log-Kanal `security` — mit Zeitpunkt,
+  Kennung und IP, nie mit Passwort oder Token —, und ein Test liest den Eintrag (Overlay,
+  Betriebsvertrag Punkt 12; Punkt der Nacharbeit-Checkliste von `/projekt-neu`). FastAPI-Dienste
+  tun dasselbe über den Logger `security`, sobald sie Anmeldung oder Rechte kennen.
+  `/projekt-aufnehmen` meldet den fehlenden Test bei Laravel als Lücke der Stufe 3.
+
+### Geändert
+
+- **Personenbezogene Daten in Logs: eine Ausnahme.** Das Sicherheitsprotokoll darf Kennung und
+  IP-Adresse enthalten — nur dort, zur Erkennung von Angriffen (berechtigtes Interesse, Art. 6
+  Abs. 1 lit. f DSGVO), in der Datenschutzerklärung genannt, in `docs/datenschutz.md` eingetragen
+  und höchstens 90 Tage aufbewahrt (ADR 0007); die eingegebene Kennung einer fehlgeschlagenen
+  Anmeldung nur, wenn es das Konto gibt. Sonst bleibt es dabei: keine personenbezogenen Daten in
+  den Protokollen der Anwendung. FastAPI-Overlay, `api.md` der Vorlage, `security-reviewer` und
+  `python-reviewer` nennen die Ausnahme; `/deploy-check` meldet Container, die älter als 90 Tage
+  sind.
+
 ## [1.3.0] — 2026-09-27
 
 ### Hinzugefügt

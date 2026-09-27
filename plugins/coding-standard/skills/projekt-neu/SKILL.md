@@ -143,6 +143,22 @@ cd <zielordner> && git checkout -b chore/firmenstandard-nacharbeit
       `lint.ignorePatterns` **und** `fmt.ignorePatterns`. Sonst prüft `npm run check`
       51 Dateien, die niemand von Hand geschrieben hat.
 - [ ] `tests/Feature/AppVersionTest.php`: die Fassung ist auf **beiden** Oberflächen sichtbar.
+- [ ] Sicherheitsprotokoll (Overlay, Betriebsvertrag Punkt 12): In `config/logging.php` einen
+      Kanal `security` nach dem Muster des Kanals `stderr`, mit `'name' => 'security'` — sonst
+      stehen die Einträge unter dem Namen der Umgebung im selben Strom. Ein Listener unter
+      `app/Listeners/` auf `Illuminate\Auth\Events\Failed` und `Lockout` (Fortify feuert beide)
+      schreibt Zeitpunkt, Kennung und IP — nie Passwort oder Token; die eingegebene Kennung nur,
+      wenn es das Konto gibt, sonst „unbekannt“. Filament drosselt seine Anmeldung selbst
+      und feuert kein `Lockout`: eine eigene Login-Seite des Panels schreibt die Sperre in
+      `authenticate()` in den Kanal. `tests/Feature/SicherheitsprotokollTest.php`: Anmeldung mit
+      falschem Passwort, dazu `Log::shouldReceive('channel')->with('security')->andReturnSelf()`
+      und `Log::shouldReceive('warning')->once()->withArgs(…)`, das prüft, dass das Passwort nicht
+      im Kontext steht — `Log::spy()` allein bliebe grün, auch wenn nichts protokolliert wird.
+      Rechteänderungen schreibt die Action, die Rollen ändert, selbst (oder sie feuert ein eigenes
+      Event), sobald Rollen vergeben werden. In `docs/datenschutz.md` eine Zeile „Sicherheitsprotokoll
+      (Log-Kanal `security`)“ — Felder: Kennung, IP · Betroffene: Nutzer · Zweck: Angriffserkennung ·
+      Rechtsgrundlage: Art. 6 Abs. 1 lit. f · Löschfrist: 90 Tage · Zugriff: Betrieb; dazu ein Satz in der
+      Datenschutzerklärung der Anwendung (Art. 13).
 - [ ] `package.json`: `@playwright/test` und `@axe-core/playwright` als devDependency
       (`npm install -D @playwright/test @axe-core/playwright`),
       Script `"e2e": "playwright test --config tests/e2e/playwright.config.ts"`; die Dateien

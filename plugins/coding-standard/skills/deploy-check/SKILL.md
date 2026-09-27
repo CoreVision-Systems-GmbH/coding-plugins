@@ -109,6 +109,10 @@ den laufenden Fehler klären.
 - Eine Abweichung ist kein No-Go, aber ein Befund: Die Härtung kommt mit dem nächsten
   `docker compose up -d` aus dem Repo. Steht sie dort nicht (älteres Projekt), fehlt sie auch
   nach dem Update — dann `compose.yaml` aus `templates/<stack>/dateien` nachziehen.
+- Alter der Container: `docker inspect --format '{{.Name}} {{.Created}}'`. Ist einer älter als
+  90 Tage, ist das ein Befund: Seine Logs — samt Sicherheitsprotokoll mit Kennung und IP — sind
+  dann älter als erlaubt (ADR 0007). Das Update erzeugt die Container neu; kommt keines,
+  `docker compose up -d --force-recreate`.
 
 ## Ausgabe
 

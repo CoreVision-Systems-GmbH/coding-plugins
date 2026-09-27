@@ -429,6 +429,7 @@ case "$STACK" in
         pruefe 3 "$(hat pint.json 'declare_strict_types' && echo 0 || echo 1)" "pint.json: declare_strict_types und Imports" "templates/laravel/dateien/pint.json"
         pruefe 3 "$([ -f "$DIR/phpmd.xml" ] && [ -f "$DIR/scripts/komplexitaet-pruefen.sh" ] && echo 0 || echo 1)" "Kennzahlen je Funktion (phpmd.xml, scripts/komplexitaet-pruefen.sh)" "templates/laravel/dateien/phpmd.xml"
         pruefe 3 "$([ -f "$DIR/tests/Feature/AppVersionTest.php" ] && echo 0 || echo 1)" "AppVersionTest: Fassung auf beiden Oberflächen sichtbar"
+        pruefe 3 "$([ -f "$DIR/tests/Feature/SicherheitsprotokollTest.php" ] && echo 0 || echo 1)" "Sicherheitsprotokoll: tests/Feature/SicherheitsprotokollTest.php (fehlgeschlagene Anmeldung im Kanal security, ohne Passwort)"
         pruefe 3 "$(hat .env.example '^APP_VERSION=' && echo 0 || echo 1)" ".env.example: APP_VERSION (Image-Tag der Instanz)"
         pruefe 3 "$(hat .env.example '^APP_TIMEZONE=' && echo 0 || echo 1)" ".env.example: APP_TIMEZONE (nie hart UTC)"
         pruefe 3 "$(hat compose.yaml '/up' && echo 0 || echo 1)" "compose.yaml: Healthcheck auf /up"

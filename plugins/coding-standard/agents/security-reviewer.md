@@ -84,7 +84,9 @@ Alarmierung · A10 Fehlbehandlung von Ausnahmen.
 
 - Debug-Modus in Produktion, Stacktraces nach außen, Verzeichnislisting; Debug- oder
   Diagnoseskripte im öffentlichen Verzeichnis (Muster F).
-- Personenbezogene Daten oder Secrets im Log.
+- Personenbezogene Daten oder Secrets im Log. Ausnahme: das Sicherheitsprotokoll (Kanal bzw.
+  Logger `security`) mit Kennung und IP — kein Befund, wenn es in `docs/datenschutz.md` steht;
+  Passwort oder Token darin bleiben ein Befund.
 - Sicherheitsrelevante Ereignisse (fehlgeschlagene Anmeldung, Rechteänderung, Export,
   Löschung) nicht protokolliert — oder protokolliert, ohne dass ein Test den Eintrag liest
   (ein Protokoll, das still scheitert, ist keines).
