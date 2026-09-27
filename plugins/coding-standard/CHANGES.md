@@ -7,6 +7,82 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.3.0] — 2026-09-27
+
+### Hinzugefügt
+
+- **Datenschutz- und KI-Verzeichnis:** Laravel, FastAPI und WordPress bringen
+  `docs/datenschutz.md` mit — Tabellen mit Personenbezug, Zweck, Rechtsgrundlage, Löschfrist,
+  Empfänger, als Grundlage für das Verzeichnis nach DSGVO Art. 30; `/projekt-aufnehmen` meldet es
+  als Lücke der Stufe 3. Für Produkte mit KI-Funktion liegt die Vorlage
+  `templates/dokumente/ki-modelle.md` im Standard (Modell, Rolle, Risikoklasse, Daten,
+  Kennzeichnung), und `scripts/konfig-pruefen.sh` meldet eine ausgelieferte, bekannte
+  KI-Bibliothek (etwa `openai`, `anthropic`, `@anthropic-ai/sdk`, `prism-php/prism`) ohne
+  `docs/ki-modelle.md` als Befund; Entwicklungsabhängigkeiten zählen nicht.
+
+- **Barrierefreiheit als Schalter je Projekt:** Astro und Laravel bringen
+  `tests/e2e/barrierefreiheit.spec.ts` mit — axe-core prüft die Seiten aus `deploy/smoke.txt`
+  mit Status 200 gegen WCAG 2.1 A und AA auf allen drei Viewports. Standardmäßig aus; ein
+  Projekt schaltet sie mit `EINGESCHALTET = true` ein (im PR begründet), etwa wenn es unter das
+  Barrierefreiheitsgesetz fällt. `@axe-core/playwright` ist Entwicklungsabhängigkeit (Astro in
+  der Vorlage, Laravel in der Nacharbeit-Checkliste von `/projekt-neu`).
+- **Meldeweg für Schwachstellen (Cyber Resilience Act):** Neue Projekte bekommen eine
+  `SECURITY.md` — Meldung vertraulich an `security@cvsystems.ai`, koordinierte Offenlegung,
+  Supportzeitraum — und eine `security.txt` nach RFC 9116 unter `/.well-known/` (Laravel und
+  Astro in `public/`, WordPress in `web/`, FastAPI als eigene Route aus `app/security.txt`).
+  `Expires` steht beim Anlegen auf dem Monatsersten in einem Jahr. Den Supportzeitraum legt
+  jedes Projekt selbst fest; bis dahin steht dort „noch festzulegen“.
+- **`scripts/konfig-pruefen.sh` prüft die Offenlegung:** Fehlt `SECURITY.md` oder
+  `security.txt`, fehlt `Contact` oder ist `Expires` abgelaufen, ist das ein Befund; läuft
+  `Expires` in weniger als einem Monat ab oder ist der Supportzeitraum offen, ein Hinweis.
+  `/release` hält vor dem Tag an, solange der Supportzeitraum fehlt, und `/projekt-aufnehmen`
+  meldet beide Dateien als Lücke der Stufe 2. Bestehende Projekte übernehmen Prüfer und
+  Vorlagen bei Anlass.
+- **Ausstieg (Offboarding) im Kochbuch** (`EINRICHTUNG.md`, Teil F): Endet eine Mitarbeit,
+  entzieht die Geschäftsführung am letzten Arbeitstag alle Zugänge — GitHub samt offener
+  Einladung, Tailscale-Freigaben je Server, Konten auf jedem Server (erst sperren, nach 30 Tagen
+  löschen; Spuren mit root-Rechten durchsehen), Firmenkonten, Kundensysteme — und wechselt alles,
+  was die Person kannte oder lesen konnte: ihre Tresor-Datei, bei Mitgliedern der Gruppe `docker`
+  die `.env`-Werte und den DNS-Token des Servers, die Actions-Secrets der Repos mit Schreibrecht.
+  Mit der richtigen Reihenfolge beim Datenbankpasswort (erst in der Datenbank, dann in der
+  `.env`).
+- **KI-Kompetenz bestätigen** (`EINRICHTUNG.md`, A.6.8): Wer mit Claude Code für CoreVision
+  arbeitet, liest den Kern und schickt der Geschäftsführung eine datierte Bestätigung per Mail —
+  der Nachweis, den die KI-Verordnung (Art. 4) von CoreVision verlangt; Text zum Kopieren im
+  Kochbuch.
+- **Sicherheits-Kopfzeilen als Schalter je Site:** `sudo edge-site kopfzeilen <host> an|aus`
+  setzt im Edge-Caddy HSTS (ein Jahr, ohne Subdomains und preload), `nosniff`,
+  `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy` und entfernt den `Server`-Kopf;
+  `--csp '<richtlinie>'` fügt eine Content-Security-Policy hinzu. Standardmäßig aus; jeder Wert
+  gilt nur, wenn die Anwendung ihn nicht selbst setzt. `edge-site list` und `check` zeigen den
+  Zustand, `check` prüft bei „an“, ob HSTS ankommt; ein erneutes `add` behält den Schalter.
+  Kochbuch Teil D.5.
+- **Softwarestückliste am Release:** `release.yml` der Stacks Laravel, FastAPI, Astro und
+  WordPress erzeugt nach dem Bau eine Softwarestückliste des Abbilds im Format CycloneDX
+  (Syft über `anchore/sbom-action`, per Commit festgenagelt) und hängt sie als
+  `sbom-<fassung>.cdx.json` an das GitHub-Release — aus dem Abbild selbst, damit auch die
+  Systempakete des Basisabbilds darin stehen (Cyber Resilience Act, Anhang I Teil II).
+  Bestehende Projekte übernehmen bei Anlass die zwei neuen Schritte und die Zeile `image=…` im
+  Schritt „Fassung aus dem Tag ableiten“ — ohne sie findet die Stückliste das Abbild nicht.
+- **Vorfall-Runbook** (`runbooks/vorfall.md`): Was bei einem Sicherheitsvorfall, einer
+  Datenschutzverletzung oder einer ausgenutzten Schwachstelle zu tun ist — sofort an die
+  Geschäftsführung, Einordnen in der ersten Stunde (wer ist Hersteller, wer meldet), Meldefristen
+  nach Cyber Resilience Act (unverzüglich, spätestens 24 h / 72 h über die Meldeplattform der
+  ENISA, seit 11.09.2026), DSGVO (als Auftragsverarbeiter den Kunden unverzüglich, als
+  Verantwortlicher unverzüglich, möglichst binnen 72 h an die Datenschutzbehörde) und NIS2
+  (Kunden als Einrichtungen, NISG 2026 ab 01.10.2026), Eindämmen, Abschluss, Protokollvorlage,
+  Vorbereitung und jährliche Übung. Der Kern verweist darauf, `/deploy-check` wertet unerklärbaren Drift als
+  möglichen Vorfall, und `nach-release.sh` legt eine Lesekopie `vorfall-runbook.MD` ab.
+
+### Behoben
+
+- **`konfig-pruefen.sh` las bei einem einzeiligen `"require": {…}` den Block `require-dev` mit**
+  und hielt Debug-Werkzeuge von dort für ausgeliefert.
+- **`edge-site check` brach still ab**, wenn der Hostname nicht auflöste — statt „DNS fehlt“
+  zu melden, endete der Befehl ohne Ausgabe.
+- **`edge-site` prüft Hostname und Ziel über die ganze Eingabe:** Ein Name mit Zeilenumbruch
+  kam bisher durch, sobald eine seiner Zeilen gültig aussah.
+
 ## [1.2.0] — 2026-09-26
 
 ### Geändert

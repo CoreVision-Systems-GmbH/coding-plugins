@@ -228,6 +228,11 @@ ENV_PREFIX="$(printf '%s' "${NAME##*-}" | tr '[:lower:]' '[:upper:]')_"
 IMAGE="ghcr.io/$OWNER_LC/$NAME"
 DATUM="$(date +%Y-%m-%d)"
 JAHR="$(date +%Y)"
+# Ablauf der security.txt: Monatserster in einem Jahr — nie mehr als ein Jahr voraus, wie
+# RFC 9116 empfiehlt. Aus dem Datum gerechnet, weil `date -d` und `date -v` sich nicht einig sind.
+# Jahr und Monat aus demselben Aufruf wie DATUM — zwei date-Aufrufe um Silvester ergäben sonst
+# ein Jahr zu viel.
+ABLAUF="$(( 10#${DATUM:0:4} + 1 ))-${DATUM:5:2}-01T00:00:00Z"
 
 declare -A ERSATZ=(
     [NAME]="$NAME"
@@ -248,6 +253,7 @@ declare -A ERSATZ=(
     [ENV_PREFIX]="$ENV_PREFIX"
     [DATE]="$DATUM"
     [YEAR]="$JAHR"
+    [EXPIRES]="$ABLAUF"
 )
 
 zeile "Projekt:  $NAME"

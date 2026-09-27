@@ -172,7 +172,7 @@ lauf 0 "Projekt entsteht" \
     --name probe-script --stack script --owner musterorg \
     --purpose "Wegwerfprobe des Bootstraps." --dir "$pdir" --no-github
 
-for datei in CLAUDE.md README.md CHANGES.md LICENSE version.txt .gitignore \
+for datei in CLAUDE.md README.md CHANGES.md LICENSE version.txt .gitignore SECURITY.md \
              .editorconfig .gitattributes .coding-standard \
              .githooks/pre-commit .gitleaks.toml \
              .claude/settings.json .claude/rules/tests.md \
@@ -290,10 +290,10 @@ lauf 0 "Projekt entsteht, Prüfungen grün" \
 
 for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              .env.example pyproject.toml requirements.txt requirements-dev.txt \
-             app/main.py app/settings.py app/schemas.py \
+             app/main.py app/settings.py app/schemas.py app/security.txt SECURITY.md docs/datenschutz.md \
              app/modules/beispiel/router.py app/modules/beispiel/service.py \
              app/modules/beispiel/schemas.py \
-             tests/conftest.py tests/test_health.py tests/test_settings.py \
+             tests/conftest.py tests/test_health.py tests/test_settings.py tests/test_security_txt.py \
              deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
              deploy/smoke.sh deploy/smoke.txt scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
              .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
@@ -321,6 +321,15 @@ grep -q 'Datenbank: PostgreSQL 18\.' "$pdir/CLAUDE.md" \
 grep -q 'ghcr.io/musterorg/probe-fastapi' "$pdir/compose.yaml" \
     && ok "compose.yaml zeigt auf das richtige Abbild" \
     || nichtok "compose.yaml zeigt auf das richtige Abbild"
+# Softwarestückliste: aus dem gebauten Abbild (Digest), als CycloneDX, am Release — die Action
+# per Commit festgenagelt wie alle anderen.
+grep -qE 'uses: anchore/sbom-action@[0-9a-f]{40} ' "$pdir/.github/workflows/release.yml" \
+    && grep -qF 'echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"' "$pdir/.github/workflows/release.yml" \
+    && grep -q 'image: ${{ steps.version.outputs.image }}@${{ steps.build.outputs.digest }}' "$pdir/.github/workflows/release.yml" \
+    && grep -q 'format: cyclonedx-json' "$pdir/.github/workflows/release.yml" \
+    && grep -q 'gh release upload "$TAG" "sbom-${VERSION}.cdx.json" --clobber' "$pdir/.github/workflows/release.yml" \
+    && ok "release.yml: Softwarestückliste des Abbilds (CycloneDX) am Release" \
+    || nichtok "release.yml: Softwarestückliste des Abbilds (CycloneDX) am Release"
 # Datenbank ist PostgreSQL (Kern): Dienst db im internen Netz, die App wartet auf ihn, die
 # Sicherung zieht einen Abzug, das Passwort bleibt im Schema leer.
 grep -q 'image: postgres:18-alpine' "$pdir/compose.yaml" \
@@ -344,6 +353,72 @@ printf '%s\n' "$ausgabe" | grep -qE 'Komplexität: [1-9][0-9]* Befund' \
     || nichtok "scripts/komplexitaet-pruefen.sh: 15 Zweige sind ein Befund (Status $status): $(printf '%s\n' "$ausgabe" | tail -2 | tr '\n' ' ')"
 rm -f "$pdir/app/zu_gross.py"
 probe_konfig_lizenzen "$pdir"
+# Offenlegung: Das Gerüst nennt Kontakt und Ablauf; der Prüfer merkt ein abgelaufenes oder bald
+# ablaufendes Expires und ein fehlendes SECURITY.md — die Sicherung wird mit der Gefahr geprüft.
+grep -q '^Contact: mailto:security@cvsystems\.ai$' "$pdir/app/security.txt" \
+    && grep -qE "^Expires: $(( $(date +%Y) + 1 ))-[0-9]{2}-01T00:00:00Z$" "$pdir/app/security.txt" \
+    && ok "security.txt: Contact und Expires (Monatserster in einem Jahr)" \
+    || nichtok "security.txt: Contact und Expires (Monatserster in einem Jahr): $(grep -E '^(Contact|Expires):' "$pdir/app/security.txt" | tr '\n' ' ')"
+(cd "$pdir" && bash scripts/konfig-pruefen.sh 2>&1) | grep -q '^Hinweis SECURITY.md: Supportzeitraum oder unterstützte Fassungen noch festzulegen' \
+    && ok "konfig-pruefen.sh: offener Supportzeitraum ist ein Hinweis" \
+    || nichtok "konfig-pruefen.sh: offener Supportzeitraum ist ein Hinweis"
+cp "$pdir/app/security.txt" "$tmp/security.txt.orig"
+printf 'Contact: mailto:security@example.invalid\nExpires: 2020-01-01T00:00:00Z\n' > "$pdir/app/security.txt"
+ausgabe="$(cd "$pdir" && bash scripts/konfig-pruefen.sh 2>&1)" && status=0 || status=$?
+[ "$status" -eq 1 ] && printf '%s\n' "$ausgabe" | grep -q '^BEFUND  app/security.txt: abgelaufen am 2020-01-01' \
+    && ok "konfig-pruefen.sh: abgelaufenes Expires ist ein Befund" \
+    || nichtok "konfig-pruefen.sh: abgelaufenes Expires ist ein Befund (Status $status)"
+# Ein Ablauf in wenigen Tagen: im selben Monat, ab dem 26. am Monatsersten des nächsten.
+heute="$(date +%Y-%m-%d)"; j=$((10#${heute:0:4})); m=$((10#${heute:5:2})); t=$((10#${heute:8:2}))
+if [ "$t" -le 25 ]; then t=$((t + 3)); else t=1; m=$((m + 1)); [ "$m" -le 12 ] || { m=1; j=$((j + 1)); }; fi
+bald="$(printf '%04d-%02d-%02d' "$j" "$m" "$t")"
+printf 'Contact: mailto:security@example.invalid\nExpires: %sT00:00:00Z\n' "$bald" > "$pdir/app/security.txt"
+ausgabe="$(cd "$pdir" && bash scripts/konfig-pruefen.sh 2>&1)" && status=0 || status=$?
+[ "$status" -eq 0 ] && printf '%s\n' "$ausgabe" | grep -q "^Hinweis app/security.txt: läuft am $bald ab" \
+    && ok "konfig-pruefen.sh: Ablauf in wenigen Tagen ist ein Hinweis, kein Befund" \
+    || nichtok "konfig-pruefen.sh: Ablauf in wenigen Tagen ist ein Hinweis, kein Befund (Status $status, $bald)"
+# konfig_fall <status> <muster> <name> — ein Lauf des Prüfers gegen die gerade geschriebene Datei
+konfig_fall() {
+    local aus st
+    aus="$(cd "$pdir" && bash scripts/konfig-pruefen.sh 2>&1)" && st=0 || st=$?
+    if [ "$st" -eq "$1" ] && printf '%s\n' "$aus" | grep -q "$2"; then ok "konfig-pruefen.sh: $3"
+    else nichtok "konfig-pruefen.sh: $3 (Status $st): $(printf '%s\n' "$aus" | grep -E 'BEFUND|Hinweis app' | head -2 | tr '\n' ' ')"; fi
+}
+printf 'Expires: 2030-01-01T00:00:00Z\n' > "$pdir/app/security.txt"
+konfig_fall 1 '^BEFUND  app/security.txt: Contact fehlt' "security.txt ohne Contact ist ein Befund"
+printf 'Contact: mailto:security@example.invalid\nExpires: 2030-01-01\n' > "$pdir/app/security.txt"
+konfig_fall 1 'Expires fehlt oder ist kein Zeitpunkt' "Expires ohne Uhrzeit ist ein Befund"
+printf 'Contact: mailto:security@example.invalid\nExpires: 2030-13-45T00:00:00Z\n' > "$pdir/app/security.txt"
+konfig_fall 1 'Expires fehlt oder ist kein Zeitpunkt' "Expires mit Monat 13 ist ein Befund"
+printf 'Contact: mailto:security@example.invalid\nExpires: 2030-01-01T00:00:00Z\nExpires: 2020-01-01T00:00:00Z\n' > "$pdir/app/security.txt"
+konfig_fall 1 'Expires steht 2-mal da' "doppeltes Expires ist ein Befund"
+printf 'Contact: mailto:security@example.invalid\nExpires: 2099-01-01T00:00:00Z\n' > "$pdir/app/security.txt"
+konfig_fall 0 '^Hinweis app/security.txt: Expires am 2099-01-01 liegt mehr als ein Jahr voraus' "Expires weit voraus ist ein Hinweis"
+rm -f "$pdir/app/security.txt"
+konfig_fall 1 '^BEFUND  app/security.txt fehlt' "fehlende security.txt ist ein Befund"
+cp "$tmp/security.txt.orig" "$pdir/app/security.txt"
+# KI-Transparenz: eine ausgelieferte KI-Bibliothek ohne docs/ki-modelle.md ist ein Befund.
+cp "$pdir/requirements.txt" "$tmp/requirements.txt.orig"
+printf 'OpenAI>=1.0  # Probe\n' >> "$pdir/requirements.txt"
+konfig_fall 1 '^BEFUND  KI-Bibliothek (openai) ohne docs/ki-modelle.md' "KI-Bibliothek ohne docs/ki-modelle.md ist ein Befund"
+cp "$root/templates/dokumente/ki-modelle.md" "$pdir/docs/ki-modelle.md"
+konfig_fall 0 '^ok      KI-Bibliothek (openai) und docs/ki-modelle.md' "KI-Bibliothek mit docs/ki-modelle.md ist sauber"
+rm -f "$pdir/docs/ki-modelle.md"; cp "$tmp/requirements.txt.orig" "$pdir/requirements.txt"
+# Nur Ausgeliefertes zählt: Entwicklungsabhängigkeiten bleiben sauber, auch hinter einem leeren
+# oder einzeiligen dependencies-Block; ein einzeiliger Block mit KI-Bibliothek ist ein Befund.
+cp "$pdir/requirements-dev.txt" "$tmp/requirements-dev.txt.orig"
+printf 'openai\n' >> "$pdir/requirements-dev.txt"
+printf '{\n  "dependencies": {},\n  "devDependencies": { "openai": "^4" }\n}\n' > "$pdir/package.json"
+konfig_fall 0 '^Konfiguration: sauber' "KI-Bibliothek nur als Entwicklungsabhängigkeit ist sauber"
+printf '{ "dependencies": { "react": "^19", "@anthropic-ai/sdk": "^1" } }\n' > "$pdir/package.json"
+konfig_fall 1 '^BEFUND  KI-Bibliothek (@anthropic-ai/sdk) ohne' "einzeiliger dependencies-Block mit KI-Bibliothek ist ein Befund"
+rm -f "$pdir/package.json"; cp "$tmp/requirements-dev.txt.orig" "$pdir/requirements-dev.txt"
+mv "$pdir/SECURITY.md" "$tmp/SECURITY.md.orig"
+ausgabe="$(cd "$pdir" && bash scripts/konfig-pruefen.sh 2>&1)" && status=0 || status=$?
+[ "$status" -eq 1 ] && printf '%s\n' "$ausgabe" | grep -q '^BEFUND  SECURITY.md fehlt' \
+    && ok "konfig-pruefen.sh: fehlendes SECURITY.md ist ein Befund" \
+    || nichtok "konfig-pruefen.sh: fehlendes SECURITY.md ist ein Befund (Status $status)"
+mv "$tmp/SECURITY.md.orig" "$pdir/SECURITY.md"
 probe_vscode "$pdir"
 # Verbund gegen docker compose prüfen, wo es das gibt (CI-Läufer): gültig mit gesetzten
 # Pflichtvariablen, verweigert ohne sie (`:?`). Die .env dafür kommt aus .env.example und
@@ -402,17 +477,32 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              tsconfig.json \
              src/layouts/Base.astro src/pages/index.astro src/pages/404.astro \
              src/styles/global.css public/robots.txt public/favicon.svg \
+             public/.well-known/security.txt dist/.well-known/security.txt SECURITY.md \
              tests/build.test.mjs .claude/rules/inhalt.md .claude/rules/tests.md docker/Caddyfile \
              tests/e2e/playwright.config.ts tests/e2e/smoke.spec.ts tests/e2e/sweep.spec.ts tests/e2e/tsconfig.json \
+             tests/e2e/barrierefreiheit.spec.ts \
              deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
              deploy/smoke.sh deploy/smoke.txt scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
              .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
              scripts/release-notes.sh \
              .github/workflows/tests.yml .github/workflows/release.yml \
              .github/dependabot.yml \
+             node_modules/@axe-core/playwright/package.json \
              dist/index.html dist/404.html dist/sitemap-index.xml; do
     [ -f "$pdir/$datei" ] && ok "vorhanden: $datei" || nichtok "fehlt: $datei"
 done
+# Barrierefreiheit: vorhanden, aber aus, bis das Projekt sie einschaltet (Vorgabe des Inhabers).
+# Dass die Spezifikation mit dem Modul übersetzt, belegt `check:types` (tsc -p tests/e2e) im
+# Prüflauf des Gerüsts.
+grep -q '^const EINGESCHALTET = false;$' "$pdir/tests/e2e/barrierefreiheit.spec.ts" \
+    && grep -q "withTags(\['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'\])" "$pdir/tests/e2e/barrierefreiheit.spec.ts" \
+    && ok "barrierefreiheit.spec.ts: WCAG 2.1 AA, standardmäßig aus" \
+    || nichtok "barrierefreiheit.spec.ts: WCAG 2.1 AA, standardmäßig aus"
+# Laravel bekommt dieselbe Datei (die Suite baut kein Laravel-Gerüst): Vorlagen gleich halten.
+cmp -s "$root/templates/astro/dateien/tests/e2e/barrierefreiheit.spec.ts" \
+       "$root/templates/laravel/dateien/tests/e2e/barrierefreiheit.spec.ts" \
+    && ok "barrierefreiheit.spec.ts: Astro und Laravel gleich" \
+    || nichtok "barrierefreiheit.spec.ts: Astro und Laravel gleich"
 
 grep -rlE '\{\{[A-Z_][A-Z0-9_]*\}\}' "$pdir" \
     --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.astro >/dev/null 2>&1 \
@@ -496,8 +586,9 @@ lauf 0 "Projekt entsteht, Prüfungen grün" \
 for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              compose.dev.yaml .env.example composer.json composer.lock wp-cli.yml phpmd.xml \
              phpcs.xml phpstan.neon \
-             config/application.php config/environments/development.php \
+             config/application.php config/environments/development.php docs/datenschutz.md \
              web/index.php web/wp-config.php web/wp/wp-settings.php \
+             web/.well-known/security.txt SECURITY.md \
              web/app/mu-plugins/firmenstandard.php \
              web/app/themes/site/style.css web/app/themes/site/theme.json \
              web/app/themes/site/functions.php \

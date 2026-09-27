@@ -5,6 +5,12 @@
 #   sudo edge-site remove <host>                   Site entfernen (DNS-Eintrag bleibt)
 #   sudo edge-site list                            angeschlossene Sites
 #   sudo edge-site check <host>                    DNS, Zertifikat, HTTP-Status prüfen
+#   sudo edge-site kopfzeilen <host> an|aus [--csp '<richtlinie>']
+#                                                  Sicherheits-Kopfzeilen je Site schalten
+#
+# Kopfzeilen sind je Site aus, bis man sie einschaltet: HSTS (ein Jahr, ohne Subdomains),
+# nosniff, Referrer-Policy, X-Frame-Options SAMEORIGIN, Permissions-Policy, kein Server-Kopf;
+# mit --csp dazu eine Content-Security-Policy. Setzt die Anwendung eine davon selbst, gilt ihr Wert.
 #
 # Auf einem Dev-Server (Rolle dev) wird dem Hostnamen „dev.“ vorangestellt:
 #   edge-site add app.example.at app-dev-app:8080   →   https://dev.app.example.at
@@ -42,7 +48,9 @@ ROLLE="$(wert ROLLE)"; DNS="$(wert DNS)"; ZIEL_IP="$(wert ZIEL_IP)"; ACMEDNS_URL
 TOKEN="$(sed -n 's/^DNS_API_TOKEN=//p' "$EDGE/.env" 2>/dev/null | head -1 || true)"
 
 pruefe_host() {
-    printf '%s' "$1" | grep -qE '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$' \
+    # [[ =~ ]] prüft die ganze Zeichenkette; grep prüfte zeilenweise, ein Name mit Zeilenumbruch
+    # kam durch, sobald eine Zeile gültig war — und landete so im Dateinamen und im Caddyfile.
+    [[ "$1" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$ ]] \
         || abbruch "Kein gültiger Hostname: $1 (Kleinbuchstaben, z. B. app.example.at)"
 }
 voller_name() {
@@ -50,6 +58,37 @@ voller_name() {
     case "$ROLLE:$1" in dev:dev.*|prod:*) printf '%s' "$1" ;; dev:*) printf 'dev.%s' "$1" ;; esac
 }
 edge_compose() { docker compose -f "$EDGE/compose.yaml" "$@"; }
+
+# ---------------------------------------------------- Sicherheits-Kopfzeilen
+# Ein markierter Block in der Site-Datei; `?` setzt einen Kopf nur, wenn die Anwendung ihn nicht
+# selbst schickt — eine Anwendung mit eigener, strengerer Richtlinie wird nicht überschrieben.
+# Je Kopf eine eigene header-Zeile: Stehen mehrere `?`-Felder in einem header-Block, prüft Caddy
+# sie gemeinsam (UND) und setzt keinen, sobald die Anwendung auch nur einen davon schickt.
+# HSTS ohne includeSubDomains und ohne preload: Beides gälte für alle Hosts der Domain, auch für
+# solche, die dieser Server nicht kennt, und ließe sich nicht schnell zurücknehmen.
+kopfzeilen_block() { # kopfzeilen_block [csp]
+    printf '\t# edge-site: kopfzeilen an\n'
+    printf '\theader ?Strict-Transport-Security "max-age=31536000"\n'
+    printf '\theader ?X-Content-Type-Options "nosniff"\n'
+    printf '\theader ?Referrer-Policy "strict-origin-when-cross-origin"\n'
+    printf '\theader ?X-Frame-Options "SAMEORIGIN"\n'
+    printf '\theader ?Permissions-Policy "camera=(), microphone=(), geolocation=()"\n'
+    [ -z "${1:-}" ] || printf '\theader ?Content-Security-Policy "%s"\n' "$1"
+    printf '\theader -Server\n\t# edge-site: kopfzeilen ende\n'
+}
+kopfzeilen_an() { grep -q '# edge-site: kopfzeilen an' "$1"; }
+kopfzeilen_csp() { sed -n 's/^[[:space:]]*header ?Content-Security-Policy "\(.*\)"$/\1/p' "$1" | head -1; }
+kopfzeilen_setzen() { # kopfzeilen_setzen <datei> <an|aus> [csp] — schreibt die Site-Datei neu
+    local datei="$1" was="$2" csp="${3:-}" ohne z
+    ohne="$(sed '/# edge-site: kopfzeilen an/,/# edge-site: kopfzeilen ende/d' "$datei")"
+    {
+        while IFS= read -r z; do
+            printf '%s\n' "$z"
+            if [ "$was" = an ] && [ "$z" = $'\tencode zstd gzip' ]; then kopfzeilen_block "$csp"; fi
+        done <<< "$ohne"
+    } > "$datei.neu"
+    mv "$datei.neu" "$datei"
+}
 neu_laden() {
     edge_compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 || return 1
     edge_compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null
@@ -131,7 +170,7 @@ case "$befehl" in
     add)
         [ $# -eq 2 ] || abbruch "Aufruf: edge-site add <host> <container>:<port>"
         pruefe_host "$1"
-        printf '%s' "$2" | grep -qE '^[a-zA-Z0-9][a-zA-Z0-9_.-]*:[0-9]{1,5}$' || abbruch "Ziel als <container>:<port>, z. B. app-app:8080"
+        [[ "$2" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*:[0-9]{1,5}$ ]] || abbruch "Ziel als <container>:<port>, z. B. app-app:8080"
         fqdn="$(voller_name "$1")"; ziel="$2"
         [ -n "$ZIEL_IP" ] || abbruch "ZIEL_IP fehlt in $KONF — setup-server.sh mit --ip erneut starten."
         case "$DNS" in
@@ -147,10 +186,16 @@ case "$befehl" in
             *) abbruch "Unbekannter DNS-Weg in $KONF: $DNS" ;;
         esac
         datei="$SITES/$fqdn.caddy"
-        vorher=""; [ -f "$datei" ] && vorher="$(cat "$datei")"
+        vorher=""; kopf=aus; csp=""
+        if [ -f "$datei" ]; then
+            vorher="$(cat "$datei")"
+            # Ein erneutes add behält die Kopfzeilen — sonst fielen sie still weg.
+            if kopfzeilen_an "$datei"; then kopf=an; csp="$(kopfzeilen_csp "$datei")"; fi
+        fi
         mkdir -p "$SITES"
         printf '# edge-site add %s %s\n%s {\n%s\n\tencode zstd gzip\n\treverse_proxy %s\n}\n' \
             "$1" "$ziel" "$fqdn" "$tls" "$ziel" > "$datei"
+        [ "$kopf" = aus ] || kopfzeilen_setzen "$datei" an "$csp"
         if ! neu_laden; then
             if [ -n "$vorher" ]; then printf '%s\n' "$vorher" > "$datei"; else rm -f "$datei"; fi
             abbruch "Caddy lehnt die Konfiguration ab — nichts geändert. Prüfen: docker compose -f $EDGE/compose.yaml exec caddy caddy validate --config /etc/caddy/Caddyfile"
@@ -170,7 +215,8 @@ case "$befehl" in
         found=0
         for f in "$SITES"/*.caddy; do
             [ -f "$f" ] || continue; found=1
-            printf '%s\n' "$(sed -n '1s/^# edge-site add //p' "$f")"
+            k=""; kopfzeilen_an "$f" && k="  (Kopfzeilen an)"
+            printf '%s%s\n' "$(sed -n '1s/^# edge-site add //p' "$f")" "$k"
         done
         [ $found -eq 1 ] || echo "Keine Sites angeschlossen."
         ;;
@@ -180,7 +226,9 @@ case "$befehl" in
         fqdn="$(voller_name "$1")"; fehler=0
         if [ -f "$SITES/$fqdn.caddy" ]; then ok "Site angeschlossen: $(sed -n '1s/^# edge-site add //p' "$SITES/$fqdn.caddy")"
         else printf '   FEHLT   Site %s nicht angeschlossen\n' "$fqdn"; fehler=$((fehler + 1)); fi
-        ip="$(getent ahostsv4 "$fqdn" 2>/dev/null | awk 'NR==1{print $1}')"
+        # Löst der Name nicht auf, endet getent mit 2 — ohne `|| true` bräche check hier unter
+        # pipefail still ab, statt „DNS fehlt“ zu melden.
+        ip="$(getent ahostsv4 "$fqdn" 2>/dev/null | awk 'NR==1{print $1}' || true)"
         if [ "$ip" = "$ZIEL_IP" ]; then ok "DNS: $fqdn → $ip"
         else printf '   FEHLT   DNS: %s zeigt auf %s, erwartet %s\n' "$fqdn" "${ip:-nichts}" "$ZIEL_IP"; fehler=$((fehler + 1)); fi
         zert="$(echo | openssl s_client -connect "$ZIEL_IP:443" -servername "$fqdn" 2>/dev/null | openssl x509 -noout -issuer -enddate 2>/dev/null || true)"
@@ -189,9 +237,51 @@ case "$befehl" in
         code="$(curl -s -o /dev/null -w '%{http_code}' --resolve "$fqdn:443:$ZIEL_IP" "https://$fqdn/" || true)"
         case "$code" in 2*|3*|401|403) ok "HTTPS antwortet: $code" ;;
             *) printf '   FEHLT   HTTPS antwortet mit %s (läuft der Container im Netz edge?)\n' "${code:-nichts}"; fehler=$((fehler + 1)) ;; esac
+        if [ -f "$SITES/$fqdn.caddy" ] && kopfzeilen_an "$SITES/$fqdn.caddy"; then
+            if curl -sI --resolve "$fqdn:443:$ZIEL_IP" "https://$fqdn/" 2>/dev/null | tr -d '\r' | grep -qi '^strict-transport-security:'; then
+                ok "Kopfzeilen: an, HSTS kommt an"
+            else
+                printf '   FEHLT   Kopfzeilen: an, aber kein Strict-Transport-Security in der Antwort\n'; fehler=$((fehler + 1))
+            fi
+        else
+            printf '   aus     Kopfzeilen (einschalten: sudo edge-site kopfzeilen %s an)\n' "$1"
+        fi
         exit "$fehler"
         ;;
-    *) abbruch "Unbekannter Befehl: $befehl (add, remove, list, check)" ;;
+    kopfzeilen)
+        [ $# -ge 2 ] || abbruch "Aufruf: edge-site kopfzeilen <host> an|aus [--csp '<richtlinie>']"
+        pruefe_host "$1"
+        fqdn="$(voller_name "$1")"; datei="$SITES/$fqdn.caddy"; was="$2"; csp=""
+        case "$was" in an|aus) ;; *) abbruch "Schalter ist an oder aus, nicht: $was" ;; esac
+        [ -f "$datei" ] || abbruch "Keine Site $fqdn angeschlossen."
+        if [ $# -gt 2 ]; then
+            [ "$was" = an ] && [ "$3" = --csp ] && [ $# -eq 4 ] \
+                || abbruch "Aufruf: edge-site kopfzeilen <host> an --csp '<richtlinie>'"
+            csp="$4"
+            # Die Richtlinie steht wörtlich in der Caddy-Konfiguration: Anführungszeichen, Backslash,
+            # geschweifte Klammern (Caddy-Platzhalter) und Zeilenumbrüche würden sie aufbrechen.
+            case "$csp" in
+                ''|*[\"\\{}]*|*$'\n'*|*$'\r'*) abbruch "Die CSP darf nicht leer sein und kein \" \\ { } und keinen Zeilenumbruch enthalten." ;;
+            esac
+        elif [ "$was" = an ]; then
+            # Ohne --csp bleibt eine vorhandene CSP stehen, wie bei einem erneuten add. Entfernen:
+            # erst aus, dann an.
+            csp="$(kopfzeilen_csp "$datei")"
+        fi
+        vorher="$(cat "$datei")"
+        kopfzeilen_setzen "$datei" "$was" "$csp"
+        if [ "$was" = an ] && ! kopfzeilen_an "$datei"; then
+            printf '%s\n' "$vorher" > "$datei"
+            abbruch "In $datei fehlt die Zeile „encode zstd gzip“, hinter die der Block gehört — von Hand geändert? Mit edge-site add neu anlegen."
+        fi
+        if ! neu_laden; then
+            printf '%s\n' "$vorher" > "$datei"
+            abbruch "Caddy lehnt die Konfiguration ab — nichts geändert."
+        fi
+        ok "Kopfzeilen $was: https://$fqdn${csp:+ (mit Content-Security-Policy)}"
+        [ "$was" = aus ] || printf 'Kontrolle: sudo edge-site check %s\n' "$1"
+        ;;
+    *) abbruch "Unbekannter Befehl: $befehl (add, remove, list, check, kopfzeilen)" ;;
 esac
 exit 0
 }

@@ -72,6 +72,7 @@ Scheitert der zweite Befehl, weil der Standard nur aus einem geklonten Projekt k
 |---|---|
 | `.claude-plugin/marketplace.json` | Der Marketplace `corevision` |
 | `plugins/coding-standard/` | Das Plugin: Kern, Stack-Overlays, Skills (`/projekt-neu`, `/projekt-aufnehmen`, `/release`, `/deploy-check`, `/rollout`, `/pr`), Hooks, Reviewer-Agents, Vorlagen |
+| `plugins/coding-standard/runbooks/vorfall.md` | Vorfall-Runbook: was bei einem Sicherheitsvorfall zu tun ist, Meldefristen |
 | `plugins/coding-standard/server/` | Server-Baustein: `setup-server.sh`, `edge-site`, `rollout`, Edge-Caddy mit DNS-Modulen |
 | `plugins/coding-standard/CHANGES.md` | Was sich je Fassung geändert hat |
 | `EINRICHTUNG.md` | Kochbuch: Arbeitsplatz, Dev-Server, Prod-Server, DNS, Rollout — per Skript oder von Hand |

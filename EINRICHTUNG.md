@@ -28,6 +28,7 @@ jede Adresse `dev.`; der Prod-Server ist öffentlich und bekommt Fassungen nur a
 | **C — Prod-Server** | wer den Prod-Server einrichtet (einmal) | Server mit Edge; Anwendungen per `deploy/install.sh` |
 | **D — DNS und Zertifikate** | wer Domains verwaltet | API-Token oder acme-dns, Einträge je Anwendung |
 | **E — Rollout** | wer Fassungen auf Prod freigibt | sofort oder zum Termin, mit Rückweg |
+| **F — Ausstieg** | die Geschäftsführung, wenn eine Mitarbeit endet | alle Zugänge entzogen, bekannte Geheimnisse gewechselt |
 
 ---
 
@@ -452,6 +453,28 @@ Version 8.4 wählen, dann eine **neue** PowerShell — `php -m` zeigt `intl`.
 GitHub-Benutzernamen an CoreVision schicken, Einladung in `CoreVision-Systems-GmbH` annehmen.
 Kontrolle: `gh repo list CoreVision-Systems-GmbH` zeigt dein Projekt.
 
+### A.6.8 KI-Kompetenz bestätigen
+
+CoreVision muss dafür sorgen, dass alle, die in ihrem Auftrag mit KI-Werkzeugen arbeiten, diese
+Werkzeuge und ihre Grenzen ausreichend kennen (KI-Verordnung, Art. 4); deine Bestätigung ist der
+Nachweis. Dafür liest du den Kern des Standards — vor allem die Abschnitte „Arbeiten mit KI“ und
+„Bauen ist nicht prüfen“ — und schickst der Geschäftsführung von CoreVision (Adresse aus deinem
+Vertrag oder der Einladung) eine datierte Bestätigung per Mail:
+
+```text
+Betreff: KI-Kompetenz — Bestätigung <Vorname Nachname>
+
+Ich habe am <JJJJ-MM-TT> den Kern des Firmenstandards coding-standard@corevision in der
+Fassung <X.Y.Z> gelesen. Ich kenne die Grenzen der KI-Werkzeuge, mit denen ich arbeite: Sie
+machen Fehler, die plausibel aussehen; was sie bauen, prüft ein frischer Blick und gibt ein
+Mensch frei. Geheimnisse und Schlüssel gebe ich keinem KI-Dienst, personenbezogene Daten und
+echte Kundendaten keinem Cloud-Modell. Unklares kläre ich, bevor ich arbeite.
+
+<Ort>, <Datum>, <Name>
+```
+
+Das Einrichtungsskript nennt diesen Schritt nicht — er lässt sich auf dem Gerät nicht prüfen.
+
 ## A.7 Erstes Projekt
 
 Auf dem Dev-Server (VS Code mit Remote-SSH, Terminal dort):
@@ -784,6 +807,27 @@ sudo edge-site check <host>     # DNS → Ziel-IP, Zertifikat von Let's Encrypt,
 docker logs edge-caddy          # bei Zertifikatsproblemen: was Caddy versucht hat
 ```
 
+## D.5 Sicherheits-Kopfzeilen (je Site, standardmäßig aus)
+
+```bash
+sudo edge-site kopfzeilen <host> an                         # Grundschutz einschalten
+sudo edge-site kopfzeilen <host> an --csp "default-src 'self'"   # dazu eine Content-Security-Policy
+sudo edge-site kopfzeilen <host> aus                        # zurück, Site-Datei wie vorher
+```
+
+„An“ setzt HSTS (ein Jahr, ohne Subdomains und ohne preload), `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN`, eine
+`Permissions-Policy` ohne Kamera, Mikrofon und Standort, und entfernt den `Server`-Kopf. Jeder
+Wert gilt nur, wenn die Anwendung ihn nicht selbst schickt. `edge-site check` zeigt den Zustand
+und prüft bei „an“, ob HSTS wirklich ankommt; ein erneutes `edge-site add` behält ihn. Ein
+erneutes `an` ohne `--csp` behält eine vorhandene CSP — entfernen: erst `aus`, dann `an`.
+
+Vorsicht mit HSTS: Der Browser merkt es sich ein Jahr lang. „Aus“ nimmt es aus dem Browser
+**nicht** zurück — dafür müsste die Site eine Zeit lang `max-age=0` über HTTPS senden. Solange
+ein Browser HSTS kennt, geht die Site nicht über HTTP, und eine Zertifikatswarnung lässt sich
+nicht mehr wegklicken. Eine CSP zuerst auf der Dev-Instanz ausprobieren: Eine zu strenge
+Richtlinie blockiert Skripte und Styles der Anwendung.
+
 ---
 
 # Teil E — Rollout auf den Prod-Server
@@ -826,3 +870,82 @@ sudo rollout liste; sudo rollout absagen <id>        # offene Termine entfernen
 
 `setup-server.sh` löscht nichts. Pakete mit `sudo apt remove`, Zertifikate liegen unter
 `/var/lib/edge/data`, Konfiguration unter `/opt/edge` und `/etc/corevision`.
+
+---
+
+# Teil F — Ausstieg (Offboarding)
+
+Endet die Mitarbeit einer Person — auch einer externen —, entzieht die Geschäftsführung alle
+Zugänge **am letzten Arbeitstag** und wechselt jedes Geheimnis, das die Person kannte oder lesen
+konnte. Ein Zugang, der bleibt, ist eine offene Tür; ein bekanntes Geheimnis wird gewechselt, nicht
+nur entfernt (Kern, „Keine Secrets“). Vorher: Was die Person gebaut hat, liegt in PRs — was nicht
+dort liegt, ist nicht geliefert.
+
+## F.1 Zugänge entziehen
+
+| Zugang | Wie | Kontrolle |
+|---|---|---|
+| GitHub, Mitglied oder offene Einladung | `gh api -X DELETE orgs/CoreVision-Systems-GmbH/memberships/<benutzer>` | `gh api orgs/CoreVision-Systems-GmbH/memberships/<benutzer>` liefert 404 |
+| GitHub, externe Mitarbeit | `gh api -X DELETE orgs/CoreVision-Systems-GmbH/outside_collaborators/<benutzer>` | `gh api --paginate orgs/CoreVision-Systems-GmbH/outside_collaborators --jq '.[].login'` ohne die Person |
+| GitHub, Deploy-Keys | War die Person Admin eines Repos: dessen Deploy-Keys durchsehen, fremde löschen | `gh api repos/<org>/<repo>/keys --jq '.[].title'` |
+| Tailscale | je Server in dessen Admin-Konsole die Freigabe für die Person widerrufen (B.2) — auch für jeden Spark | Admin-Konsole → Share: weder eine angenommene noch eine offene Einladung der Person |
+| Konten auf Servern | auf **jedem** Server, auf dem die Person ein Konto hatte — Dev, Prod, Spark —, siehe unten | `sudo chage -l <name>` zeigt das Konto als abgelaufen; `id <name>` ohne `docker` und `sudo` |
+| Claude, Mail, Dokumente | Konten der Firma, die die Person hatte, aus der jeweiligen Organisation entfernen | Anmeldung abgelehnt |
+| Kundensysteme | Zugänge, die der Kunde der Person gegeben hat: dem Kunden schriftlich melden, dass sie zu entziehen sind | Bestätigung des Kunden |
+
+Hatte die Person Admin-Rechte an einem Server oder dessen Tailnet, kannte sie auch die Zugänge,
+die ihn verwalten: das GitHub-Konto, dem das Tailnet des Servers gehört (Passwort, zweiter Faktor,
+Wiederherstellungscodes, offene Sitzungen), und die Tokens aus C.2 und D. Alle wechseln.
+
+Auf einem Server sperren statt sofort löschen — so bleibt Zeit nachzusehen, ob in `~/Code` noch
+etwas liegt, das in einen PR gehört:
+
+```bash
+sudo usermod -L -e 1 <name>                     # Anmeldung und Konto gesperrt, auch per Schlüssel
+sudo gpasswd -d <name> docker                   # keine Container mehr (root-gleich)
+sudo gpasswd -d <name> sudo 2>/dev/null || true
+sudo rm -rf /home/<name>/.ssh                   # authorized_keys und authorized_keys2
+sudo crontab -r -u <name> 2>/dev/null || true   # eigene Cron-Aufträge
+sudo loginctl disable-linger <name> 2>/dev/null || true
+sudo pkill -KILL -u <name> || true              # laufende Sitzungen, auch tmux und VS-Code-Server
+# nach 30 Tagen, wenn nichts mehr fehlt:
+sudo deluser --remove-home <name>
+```
+
+Wer in der Gruppe `docker` war, hatte root-Rechte. Deshalb zusätzlich durchsehen, ob etwas dazu
+gekommen ist, das niemand erklären kann: `docker ps -a` gegen die bekannten Instanzen,
+`/root/.ssh/authorized_keys*`, `/etc/sudoers.d/`, `/etc/cron*`, `systemctl list-units --type=service`
+und `systemctl list-timers`. Findet sich etwas, ist das ein möglicher Vorfall — Vorfall-Runbook im
+Standard (`runbooks/vorfall.md`). Dev-Instanzen der Person (`<app>-dev-…`) mit `deploy/dev.sh down`
+im jeweiligen Projektordner stoppen.
+
+## F.2 Geheimnisse wechseln
+
+Gewechselt wird alles, was die Person kannte **oder lesen konnte**:
+
+- **Ihre Tresor-Datei** (A.6.4): jedes Geheimnis darin.
+- **Jeder Server, auf dem sie in der Gruppe `docker` war:** alle Werte in den `.env` der Instanzen
+  und der DNS-Token des Edge-Caddy (`/opt/edge/.env`; steht auch in `docker inspect edge-caddy`) —
+  beim Anbieter widerrufen, neu anlegen, `setup-server.sh` erneut laufen lassen (D).
+- **Repos mit Schreibrecht:** deren Actions-Secrets und die Secrets der Organisation, die dort
+  sichtbar sind — über einen Workflow auf einem eigenen Zweig ließen sie sich auslesen. Bei
+  `claude-standard` auch der Deploy-Key für das Verteil-Repo.
+- **API-Tokens**, die die Person selbst angelegt hat: beim jeweiligen Anbieter widerrufen.
+
+Reihenfolge je Wert: zuerst dort ändern, wo er geprüft wird, dann in der `.env`, dann die
+Instanz neu starten und mit `/deploy-check` bzw. dem Zustandsbericht kontrollieren. Beim
+Datenbankpasswort heißt das: erst in der Datenbank (`ALTER ROLE <name> PASSWORD '…'` in
+PostgreSQL, `ALTER USER` in MariaDB), dann `DB_PASSWORD` — die Umgebungsvariable des
+Datenbank-Abbilds wirkt nur beim ersten Anlegen des Volumes; nur in der `.env` geändert, lehnt die
+Datenbank die Anwendung ab. Bei `APP_KEY` (Laravel) den alten Schlüssel in `APP_PREVIOUS_KEYS`
+behalten, solange verschlüsselte Felder mit ihm geschrieben sind.
+
+## F.3 Auf dem Gerät der Person
+
+Die Person entfernt Standard und Werkzeuge (A.11), löscht ihre Tresor-Datei aus `~/Tresor`,
+die Projektordner mit Firmen- oder Kundendaten aus `~/Code` und bestätigt das schriftlich.
+
+## F.4 Festhalten
+
+Datum, Person, entzogene Zugänge und gewechselte Geheimnisse legt die Geschäftsführung in der
+Firmenablage ab — nicht in einem Repository.

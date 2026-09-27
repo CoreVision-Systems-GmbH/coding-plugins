@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # konfig-pruefen.sh — sichere Standardkonfiguration im Repo: Geheimnisse haben in .env.example
 # keinen Wert, Debug ist aus, production ist die Vorgabe, keine Debug-Werkzeuge in der
-# Auslieferung, im öffentlichen Ordner nur index.php, nichts Vertrauliches im Repo.
+# Auslieferung, im öffentlichen Ordner nur index.php, nichts Vertrauliches im Repo; dazu die
+# KI-Transparenz (docs/ki-modelle.md bei ausgelieferter KI-Bibliothek) und der Meldeweg für
+# Schwachstellen (SECURITY.md, security.txt mit gültigem Ablauf).
 #
 # Aufruf:   bash scripts/konfig-pruefen.sh     — Teil von `check` und des CI-Schritts „Konfiguration“
 # Ändert:   nichts. Exit 0 = sauber, Exit 1 = Befunde (je eine Zeile BEFUND).
@@ -60,9 +62,27 @@ else
     hinweis "kein Git-Repo — ob Vertrauliches eingecheckt ist, prüft der nächste Lauf im Repo"
 fi
 
+# json_schluessel <datei> <block> — die Schlüssel eines JSON-Blocks wie "require" oder
+# "dependencies", mehrzeilig, einzeilig ({"a": "1", "b": "2"}) oder leer ({}). Ein leerer oder
+# einzeiliger Block darf nicht den folgenden (require-dev, devDependencies) einlesen. Der Name wird
+# mit Anführungszeichen gesucht: "dependencies" trifft weder "devDependencies" noch
+# "peerDependencies", "require" nicht "require-dev".
+json_schluessel() {
+    awk -v b="\"$2\"" '
+        !f { i = index($0, b); if (!i) next
+             rest = substr($0, i + length(b))
+             if (rest !~ /^[[:space:]]*:[[:space:]]*\{/) next
+             sub(/^[[:space:]]*:[[:space:]]*\{/, "", rest); f = 1; $0 = rest }
+        f  { e = index($0, "}"); teil = e ? substr($0, 1, e - 1) : $0
+             while (match(teil, /"[^"]+"[[:space:]]*:/)) {
+                 n = substr(teil, RSTART + 1, RLENGTH - 1); sub(/"[[:space:]]*:$/, "", n); print n
+                 teil = substr(teil, RSTART + RLENGTH)
+             }
+             if (e) exit }
+    ' "$1"
+}
 # require <composer.json> — Paketnamen aus "require" (nicht require-dev)
-# Ein leeres `"require": {}` auf einer Zeile darf nicht den folgenden Block (require-dev) einlesen.
-require_pakete() { awk '/"require"[[:space:]]*:[[:space:]]*\{[[:space:]]*\}/{next} /"require"[[:space:]]*:/{f=1;next} f&&/^[[:space:]]*}/{exit} f' "$1" | sed -n 's/^[[:space:]]*"\([^"]*\)".*/\1/p'; }
+require_pakete() { json_schluessel "$1" require; }
 
 # --- Laravel
 if [ -f artisan ]; then
@@ -107,6 +127,86 @@ if [ -f astro.config.mjs ] && [ -f .env.example ]; then
         befund ".env.example: $schluessel — eine statische Site hat keine Laufzeit-Konfiguration; was die Site weiß, steht im Bau (PUBLIC_*) oder gar nicht in der .env"
     done < <(zeilen .env.example)
     [ "$befunde" -eq "$vorher" ] && ok "Astro: .env.example nur APP_VERSION, APP_DOMAIN und PUBLIC_*"
+fi
+
+# --- KI-Transparenz (Kern, „Arbeiten mit KI“): Liefert das Produkt eine KI-Bibliothek aus, stehen
+# Modelle, Rolle und Kennzeichnung in docs/ki-modelle.md. Gezählt werden nur ausgelieferte
+# Abhängigkeiten (composer require, package.json dependencies, requirements.txt samt -r) — ein
+# Entwicklungswerkzeug ist keine KI-Funktion des Produkts. Erkannt werden bekannte Bibliotheken;
+# was die Liste nicht kennt, fällt dem Review zu.
+ki=""
+if [ -f composer.json ]; then
+    ki="$ki $(require_pakete composer.json | grep -xE 'openai-php/(client|laravel)|prism-php/prism|echolabsdev/prism|theodo-group/llphant|anthropic-ai/[a-z0-9-]+|mozex/anthropic-php|google-gemini-php/[a-z0-9-]+' | tr '\n' ' ' || true)"
+fi
+if [ -f package.json ]; then
+    ki="$ki $(json_schluessel package.json dependencies \
+        | grep -xE 'openai|ai|@ai-sdk/[a-z0-9-]+|@anthropic-ai/sdk|langchain|@langchain/[a-z0-9-]+|@google/genai|@google/generative-ai|@mistralai/mistralai|cohere-ai|ollama|groq-sdk|@azure/openai|@huggingface/(inference|transformers)' | tr '\n' ' ' || true)"
+fi
+if [ -f requirements.txt ]; then
+    # Eine Ebene -r mitlesen; #egg=<name> nennt das Paket einer VCS-Zeile; ein Kommentar beginnt
+    # nur nach Leerraum (pip), ein # in einer URL ist keiner; Namen nach PEP 503 vereinheitlicht.
+    anforderungen="requirements.txt $(sed -nE 's/^[[:space:]]*-r[[:space:]]+([^[:space:]]+).*/\1/p' requirements.txt | tr -d '\r' | tr '\n' ' ')"
+    # shellcheck disable=SC2086 # die Liste soll in Dateinamen zerfallen
+    ki="$ki $(cat $anforderungen 2>/dev/null | sed -E 's/\r$//; s/.*#egg=([A-Za-z0-9._-]+).*/\1/; s/(^|[[:space:]])#.*//; s/[<>=!~;[[:space:]@].*//' \
+        | tr '[:upper:]' '[:lower:]' | tr '._' '--' \
+        | grep -xE 'openai|openai-agents|anthropic|langchain(-[a-z0-9-]+)?|llama-index(-[a-z0-9-]+)?|google-genai|google-generativeai|mistralai|cohere|ollama|groq|litellm|transformers|sentence-transformers|llama-cpp-python' | tr '\n' ' ' || true)"
+fi
+ki="$(printf '%s' "$ki" | tr -s ' ' | sed 's/^ //; s/ $//')"
+if [ -n "$ki" ]; then
+    if [ -f docs/ki-modelle.md ]; then
+        ok "KI-Bibliothek ($ki) und docs/ki-modelle.md"
+    else
+        befund "KI-Bibliothek ($ki) ohne docs/ki-modelle.md — Modelle, Rolle, Risikoklasse und Kennzeichnung festhalten (Kern; Vorlage templates/dokumente/ki-modelle.md im Standard)"
+    fi
+fi
+
+# --- Offenlegung (Cyber Resilience Act): Meldeweg und Supportzeitraum in SECURITY.md, der
+# maschinenlesbare Kontakt in security.txt (RFC 9116). Ohne beides geht eine Meldung ins Leere
+# oder in ein öffentliches Issue. Den Supportzeitraum legt jedes Projekt selbst fest — bis dahin
+# ein Hinweis, kein Befund; /release hält vor dem Tag an.
+if [ -f SECURITY.md ]; then
+    if ! grep -q '^\*\*Supportzeitraum:\*\*' SECURITY.md; then
+        hinweis "SECURITY.md: Angabe **Supportzeitraum:** fehlt — Pflichtangabe vor dem ersten Release"
+    elif grep -qi 'noch festzulegen' SECURITY.md; then
+        hinweis "SECURITY.md: Supportzeitraum oder unterstützte Fassungen noch festzulegen — Pflichtangabe vor dem ersten Release"
+    else
+        ok "SECURITY.md: Meldeweg und Supportzeitraum"
+    fi
+else
+    befund "SECURITY.md fehlt — Meldeweg für Schwachstellen und Supportzeitraum (Vorlage templates/repo/SECURITY.md im Standard)"
+fi
+
+# tag_zahl <JJJJ-MM-TT> — grob in Tagen; genügt für „läuft in etwa einem Monat ab“.
+tag_zahl() { printf '%s' $(( 10#${1:0:4} * 372 + 10#${1:5:2} * 31 + 10#${1:8:2} )); }
+
+securitytxt=""
+if [ -f artisan ] || [ -f astro.config.mjs ]; then securitytxt=public/.well-known/security.txt; fi
+if [ -f wp-cli.yml ]; then securitytxt=web/.well-known/security.txt; fi
+if [ -f app/main.py ]; then securitytxt=app/security.txt; fi
+if [ -n "$securitytxt" ]; then
+    if [ ! -f "$securitytxt" ]; then
+        befund "$securitytxt fehlt — Kontakt für Sicherheitsmeldungen nach RFC 9116 (Contact, Expires)"
+    else
+        vorher=$befunde
+        grep -q '^Contact: ' "$securitytxt" || befund "$securitytxt: Contact fehlt"
+        # RFC 9116: Expires genau einmal. Nur Monat 01–12 und Tag 01–31 gelten als Datum.
+        anzahl="$(grep -c '^Expires:' "$securitytxt" || true)"
+        # sed -E statt \| — die Alternative in BRE kennt das sed von macOS nicht.
+        ablauf="$(tr -d '\r' < "$securitytxt" | sed -nE 's/^Expires: *([0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]))T[0-9].*/\1/p' | head -1)"
+        heute="$(date -u +%Y-%m-%d)"
+        if [ "$anzahl" -gt 1 ]; then
+            befund "$securitytxt: Expires steht $anzahl-mal da — genau einmal (RFC 9116)"
+        elif [ -z "$ablauf" ]; then
+            befund "$securitytxt: Expires fehlt oder ist kein Zeitpunkt (JJJJ-MM-TTThh:mm:ssZ)"
+        elif [[ ! "$ablauf" > "$heute" ]]; then
+            befund "$securitytxt: abgelaufen am $ablauf — Expires neu setzen, höchstens ein Jahr voraus"
+        elif [ $(( $(tag_zahl "$ablauf") - $(tag_zahl "$heute") )) -lt 31 ]; then
+            hinweis "$securitytxt: läuft am $ablauf ab — Expires jetzt erneuern, höchstens ein Jahr voraus"
+        elif [ $(( $(tag_zahl "$ablauf") - $(tag_zahl "$heute") )) -gt 372 ]; then
+            hinweis "$securitytxt: Expires am $ablauf liegt mehr als ein Jahr voraus — RFC 9116 empfiehlt weniger"
+        fi
+        [ "$befunde" -eq "$vorher" ] && ok "$securitytxt: Contact und Expires ($ablauf)"
+    fi
 fi
 
 if [ "$befunde" -ne 0 ]; then

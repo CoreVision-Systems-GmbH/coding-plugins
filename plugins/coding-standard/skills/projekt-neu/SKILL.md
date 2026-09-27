@@ -143,7 +143,8 @@ cd <zielordner> && git checkout -b chore/firmenstandard-nacharbeit
       `lint.ignorePatterns` **und** `fmt.ignorePatterns`. Sonst prüft `npm run check`
       51 Dateien, die niemand von Hand geschrieben hat.
 - [ ] `tests/Feature/AppVersionTest.php`: die Fassung ist auf **beiden** Oberflächen sichtbar.
-- [ ] `package.json`: `@playwright/test` als devDependency (`npm install -D @playwright/test`),
+- [ ] `package.json`: `@playwright/test` und `@axe-core/playwright` als devDependency
+      (`npm install -D @playwright/test @axe-core/playwright`),
       Script `"e2e": "playwright test --config tests/e2e/playwright.config.ts"`; die Dateien
       unter `tests/e2e/` kommen aus der Vorlage. `types:check` um `&& tsc -p tests/e2e` ergänzen
       (die Spezifikationen liegen außerhalb der `include`-Liste des Kits, sonst prüft sie

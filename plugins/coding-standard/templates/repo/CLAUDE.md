@@ -23,6 +23,7 @@ gilt **zusätzlich** und geht dem Overlay vor.
 | ------------------ | -------------------------------------------------- |
 | `docs/decisions/`  | ADR: Kontext, Entscheidung, Folgen                 |
 | `docs/status.md`   | Aktueller Stand und nächste Schritte               |
+| `SECURITY.md`      | Meldeweg für Schwachstellen, Supportzeitraum       |
 
 ## Konventionen
 

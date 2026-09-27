@@ -1,0 +1,4 @@
+# Kontakt für Sicherheitsmeldungen nach RFC 9116.
+Contact: mailto:security@cvsystems.ai
+Expires: {{EXPIRES}}
+Preferred-Languages: de, en

@@ -8,6 +8,11 @@ name: release
 # Damit lässt sich später zweifelsfrei sagen, welches Abbild zu welcher
 # Fassung gehört. Gibt es noch kein Release, wird eines mit dem Abschnitt aus
 # CHANGES.md angelegt (scripts/release-notes.sh).
+#
+# Dazu hängt am Release die Softwarestückliste des Abbilds (CycloneDX,
+# `sbom-<fassung>.cdx.json`) — Cyber Resilience Act, Anhang I Teil II: Wer eine
+# Schwachstelle in einer Bibliothek meldet, soll ohne Bau nachsehen können, welche
+# Fassung in welchem Release steckt.
 
 on:
   push:
@@ -32,7 +37,10 @@ jobs:
       # Fassung in CHANGES.md stehen können, nicht neben dem Git-Tag.
       - name: Fassung aus dem Tag ableiten
         id: version
-        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          # GHCR verlangt Kleinbuchstaben, der Name der Organisation hat große.
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -104,3 +112,23 @@ jobs:
           } >> "$notes"
 
           gh release edit "$TAG" --notes-file "$notes"
+
+      # Aus dem fertigen Abbild, nicht aus den Lock-Dateien: So stehen auch die
+      # Systempakete des Basisabbilds und gebündelte Bibliotheken darin.
+      - name: Softwarestückliste erzeugen (CycloneDX)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: ${{ steps.version.outputs.image }}@${{ steps.build.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: cyclonedx-json
+          output-file: sbom-${{ steps.version.outputs.value }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Stückliste an das Release hängen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: gh release upload "$TAG" "sbom-${VERSION}.cdx.json" --clobber

@@ -70,6 +70,8 @@ esac'
 stub "$S" curl 'echo "curl $*" >> "$ZUSTAND/log"
 # Wie das echte curl: Mit -H @- kommt der Authorization-Header über stdin.
 case " $* " in *" @- "*) cat > /dev/null;; esac
+# Kopfabfrage (edge-site check): HSTS nur, wenn der Zustand es vorgibt.
+case " $* " in *" -sI "*) [ -f "$ZUSTAND/hsts" ] && printf "HTTP/2 200\r\nstrict-transport-security: max-age=31536000\r\n\r\n"; exit 0;; esac
 out=""; url=""; prev=""
 for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; case "$a" in http*) url="$a";; esac; prev="$a"; done
 if [ -n "$out" ]; then : > "$out"; exit 0; fi
@@ -211,6 +213,12 @@ if [ $hat_jq -eq 1 ]; then
     lauf "$w_dev" "$SITE" add app.example.at app-dev-app:8080 >/dev/null
     grep -q "rrsets/dev.app/A/actions/set_records" "$w_dev/zustand/log"; behaupte "edge-site Dev: zweiter Aufruf ersetzt den A-Record statt ihn doppelt anzulegen" $?
     lauf "$w_dev" "$SITE" list | grep -q "app.example.at app-dev-app:8080"; behaupte "edge-site: list zeigt die Site" $?
+    # Kopfzeilen bleiben an: Die CI validiert die erzeugte Site mit dem echten Caddy (Syntax `?`).
+    lauf "$w_dev" "$SITE" kopfzeilen app.example.at an --csp "default-src 'self'; frame-ancestors 'self'" >/dev/null
+    lauf "$w_dev" "$SITE" add app.example.at app-dev-app:8080 >/dev/null
+    grep -q '# edge-site: kopfzeilen an' "$w_dev/opt/edge/caddy/sites/dev.app.example.at.caddy" \
+        && grep -q "header ?Content-Security-Policy \"default-src 'self'; frame-ancestors 'self'\"" "$w_dev/opt/edge/caddy/sites/dev.app.example.at.caddy"
+    behaupte "edge-site: erneutes add behält Kopfzeilen und CSP" $?
     touch "$w_dev/zustand/validate-fehler"
     lauf "$w_dev" "$SITE" add neu.example.at neu:8080 >/dev/null; rc=$?
     [ $rc -eq 1 ] && [ ! -f "$w_dev/opt/edge/caddy/sites/dev.neu.example.at.caddy" ]; behaupte "edge-site: abgelehnte Konfiguration wird zurückgenommen" $?
@@ -232,6 +240,55 @@ if [ $hat_jq -eq 1 ]; then
 else
     echo "skip   edge-site: Fälle mit DNS-API (jq fehlt hier; läuft in der CI)"
 fi
+
+# --- edge-site kopfzeilen: je Site aus, bis man sie einschaltet (ohne DNS-API, läuft überall)
+w_kopf="$tmp/kopf"; site="$w_kopf/opt/edge/caddy/sites/web.example.at.caddy"
+mkdir -p "$w_kopf/etc/corevision" "$w_kopf/opt/edge/caddy/sites" "$w_kopf/zustand"
+printf 'ROLLE=prod\nDNS=hetzner\nZIEL_IP=203.0.113.10\n' > "$w_kopf/etc/corevision/server.env"
+printf '# edge-site add web.example.at web-app:8080\nweb.example.at {\n\timport tls_dns\n\tencode zstd gzip\n\treverse_proxy web-app:8080\n}\n' > "$site"
+cp "$site" "$tmp/site-vorher"
+lauf "$w_kopf" "$SITE" kopfzeilen web.example.at vielleicht >/dev/null; [ $? -eq 1 ]; behaupte "kopfzeilen: nur an oder aus" $?
+lauf "$w_kopf" "$SITE" kopfzeilen fremd.example.at an >/dev/null; [ $? -eq 1 ]; behaupte "kopfzeilen: unbekannte Site endet mit 1" $?
+lauf "$w_kopf" "$SITE" check web.example.at | grep -q '^   aus     Kopfzeilen'; behaupte "kopfzeilen: ohne Schalter aus, check nennt es" $?
+lauf "$w_kopf" "$SITE" kopfzeilen web.example.at an >/dev/null; rc=$?
+[ $rc -eq 0 ] && grep -q $'^\theader ?Strict-Transport-Security "max-age=31536000"$' "$site" && ! grep -q 'includeSubDomains\|preload' "$site" \
+    && grep -q $'^\theader ?X-Content-Type-Options "nosniff"$' "$site" && ! grep -q 'Content-Security-Policy' "$site"
+behaupte "kopfzeilen an: HSTS ein Jahr ohne Subdomains, nosniff, ohne CSP" $?
+# Je Kopf eine header-Zeile, kein header-Block: In einem Block prüft Caddy alle `?`-Felder
+# gemeinsam und setzt keines, sobald die Anwendung auch nur eines davon schickt.
+! grep -q 'header {' "$site" && [ "$(grep -c $'^\theader ?' "$site")" -eq 5 ]
+behaupte "kopfzeilen an: je Kopf eine eigene header-Zeile" $?
+awk '/encode zstd gzip/{e=NR} /# edge-site: kopfzeilen an/{k=NR} /reverse_proxy/{r=NR} END{exit !(e<k && k<r)}' "$site"
+behaupte "kopfzeilen an: Block steht in der Site zwischen encode und reverse_proxy" $?
+lauf "$w_kopf" "$SITE" kopfzeilen web.example.at an >/dev/null
+[ "$(grep -c '# edge-site: kopfzeilen an' "$site")" -eq 1 ]; behaupte "kopfzeilen an: zweimal geschaltet, ein Block" $?
+lauf "$w_kopf" "$SITE" list | grep -q 'web.example.at web-app:8080  (Kopfzeilen an)'; behaupte "kopfzeilen: list zeigt den Zustand" $?
+lauf "$w_kopf" "$SITE" check web.example.at | grep -q 'FEHLT   Kopfzeilen: an, aber kein Strict-Transport-Security'
+behaupte "kopfzeilen: check merkt, wenn HSTS nicht ankommt" $?
+touch "$w_kopf/zustand/hsts"
+lauf "$w_kopf" "$SITE" check web.example.at | grep -q 'ok      Kopfzeilen: an, HSTS kommt an'; behaupte "kopfzeilen: check bestätigt HSTS" $?
+lauf "$w_kopf" "$SITE" kopfzeilen web.example.at an --csp "default-src 'self'" >/dev/null
+grep -q "header ?Content-Security-Policy \"default-src 'self'\"" "$site"; behaupte "kopfzeilen an --csp: Richtlinie wörtlich, nur als Vorgabe (?)" $?
+lauf "$w_kopf" "$SITE" kopfzeilen web.example.at an >/dev/null
+grep -q "header ?Content-Security-Policy \"default-src 'self'\"" "$site"; behaupte "kopfzeilen an ohne --csp: vorhandene CSP bleibt" $?
+cp "$site" "$tmp/site-mit-csp"
+for boese in 'x" }' '{$GEHEIM}' 'a\b' '' $'a\nb' $'a\rb'; do
+    lauf "$w_kopf" "$SITE" kopfzeilen web.example.at an --csp "$boese" >/dev/null; rc=$?
+    [ $rc -eq 1 ] && cmp -s "$site" "$tmp/site-mit-csp"; behaupte "kopfzeilen --csp: „$boese“ abgewiesen, Site unverändert" $?
+done
+touch "$w_kopf/zustand/validate-fehler"
+lauf "$w_kopf" "$SITE" kopfzeilen web.example.at aus >/dev/null; rc=$?
+[ $rc -eq 1 ] && cmp -s "$site" "$tmp/site-mit-csp"; behaupte "kopfzeilen: abgelehnte Konfiguration wird zurückgenommen" $?
+rm -f "$w_kopf/zustand/validate-fehler"
+lauf "$w_kopf" "$SITE" kopfzeilen web.example.at aus >/dev/null; rc=$?
+[ $rc -eq 0 ] && cmp -s "$site" "$tmp/site-vorher"; behaupte "kopfzeilen aus: Site-Datei genau wie vorher" $?
+# Von Hand geänderte Site ohne Ankerzeile: kein stilles „ok“ ohne Block.
+printf '# edge-site add web.example.at web-app:8080\nweb.example.at {\n\treverse_proxy web-app:8080\n}\n' > "$site"
+cp "$site" "$tmp/site-ohne-anker"
+lauf "$w_kopf" "$SITE" kopfzeilen web.example.at an >/dev/null; rc=$?
+[ $rc -eq 1 ] && cmp -s "$site" "$tmp/site-ohne-anker"; behaupte "kopfzeilen an: Site ohne Ankerzeile abgewiesen, unverändert" $?
+lauf "$w_kopf" "$SITE" kopfzeilen $'web.example.at\n../../x' an >/dev/null; [ $? -eq 1 ]
+behaupte "edge-site: Hostname mit Zeilenumbruch wird abgewiesen" $?
 
 # --- rollout: nur auf Auftrag, sofort oder zum Termin, fester Tag
 RO="$HERE/rollout"

@@ -388,6 +388,20 @@ for rel in $lieferweg; do
     [ -z "$verweis" ] && [ -f "$vorlagen/repo/$rel" ] && verweis="templates/repo/$rel"
     pruefe 2 "$([ -e "$DIR/$rel" ] && echo 0 || echo 1)" "$rel" "$verweis"
 done
+# Offenlegung (Cyber Resilience Act): jedes Produkt nennt Meldeweg und Supportzeitraum; wer eine
+# Oberfläche oder API ausliefert, dazu den maschinenlesbaren Kontakt (RFC 9116).
+pruefe 2 "$([ -f "$DIR/SECURITY.md" ] && echo 0 || echo 1)" \
+    "SECURITY.md (Meldeweg für Schwachstellen, Supportzeitraum)" "templates/repo/SECURITY.md"
+case "$STACK" in
+    laravel|astro) securitytxt=public/.well-known/security.txt ;;
+    wordpress)     securitytxt=web/.well-known/security.txt ;;
+    fastapi)       securitytxt=app/security.txt ;;
+    *)             securitytxt="" ;;
+esac
+if [ -n "$securitytxt" ]; then
+    pruefe 2 "$([ -f "$DIR/$securitytxt" ] && echo 0 || echo 1)" \
+        "$securitytxt (Kontakt nach RFC 9116; Expires höchstens ein Jahr voraus)" "templates/$STACK/dateien/$securitytxt"
+fi
 if [ -f "$DIR/.github/workflows/tests.yml" ]; then
     pruefe 2 "$(grep -qE '^[[:space:]]+ci:[[:space:]]*$' "$DIR/.github/workflows/tests.yml" && echo 0 || echo 1)" \
         "tests.yml: Auftrag heißt „ci“ (Pflicht-Check des Rulesets)"
@@ -487,6 +501,11 @@ if [ -n "$DB_IST" ]; then
         fi
     fi
 fi
+# Verzeichnis der Daten mit Personenbezug (DSGVO Art. 30) — der database-reviewer verlangt einen
+# Eintrag für jede neue Spalte mit Personenbezug; ohne die Datei gibt es keinen Ort dafür.
+case "$STACK" in laravel|fastapi|wordpress)
+    pruefe 3 "$([ -f "$DIR/docs/datenschutz.md" ] && echo 0 || echo 1)" "docs/datenschutz.md (Daten mit Personenbezug, Grundlage für das Verzeichnis nach Art. 30)" "templates/$STACK/dateien/docs/datenschutz.md" ;;
+esac
 [ -z "$AUSNAHME" ] || zeile "Next.js: Auflagen aus stacks/nextjs.md von Hand prüfen (standalone, eine Instanz, Proxy ohne Puffer, Laravel als Identitätsquelle)"
 
 meldung "Zusammenfassung"

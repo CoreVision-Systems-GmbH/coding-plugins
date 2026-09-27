@@ -78,6 +78,11 @@ Fehlende Schlüssel → No-Go (die Anwendung startet oder arbeitet sonst falsch)
 Ist eine Serverdatei neuer als der letzte Commit oder weicht ihr Inhalt ab, wurde am
 lebenden System editiert → No-Go, bis die Änderung ins Repo zurückgeholt oder verworfen ist.
 
+Kann niemand im Team die Abweichung erklären — fremde Dateien, unbekannte Prozesse oder
+Konten, geänderte Schlüssel —, ist das kein Drift, sondern ein möglicher Sicherheitsvorfall:
+No-Go, am Server nichts verändern, sofort die Geschäftsführung informieren und nach
+`${CLAUDE_PLUGIN_ROOT}/runbooks/vorfall.md` vorgehen (Fristen laufen ab Kenntnis).
+
 ## (e) Sicherung und Platz
 
 - Jüngste Sicherung vorhanden und **jünger als 24 Stunden**?

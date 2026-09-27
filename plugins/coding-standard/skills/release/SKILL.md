@@ -33,6 +33,12 @@ genau sagen, welcher und warum.
    `gh run list --branch main --limit 1`.
 5. `CHANGES.md` hat unter `## Unveröffentlicht` mindestens einen Eintrag.
    Ist der Abschnitt leer, gibt es nichts zu veröffentlichen.
+6. Offenlegung (Cyber Resilience Act): Gibt es `SECURITY.md`, nennt sie Supportzeitraum und
+   unterstützte Fassungen (kein „noch festzulegen“ mehr). Gibt es `scripts/konfig-pruefen.sh`,
+   meldet es keinen Befund — auch keinen zu `security.txt`. Sonst abbrechen: Den Supportzeitraum
+   legt das Projekt fest und trägt ihn per PR in `SECURITY.md` ein, nicht dieser Skill. Fehlt
+   `SECURITY.md` ganz (Bestand vor der Vorlage), kein Abbruch, aber im Bericht nennen:
+   `/projekt-aufnehmen` führt sie als Lücke.
 
 ## 2. Version bestimmen
 

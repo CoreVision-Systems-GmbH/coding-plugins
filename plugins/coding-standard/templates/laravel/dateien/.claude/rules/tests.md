@@ -59,6 +59,10 @@ paths: ['tests/**']
   auf dem Handy. Ein Test läuft in allen drei Projekten.
 - **Klick-Sweep** (`sweep.spec.ts`): jedem internen Link der Startseite folgen — kein 4xx/5xx,
   keine Konsolenfehler.
+- **Barrierefreiheit** (`barrierefreiheit.spec.ts`, axe-core, WCAG 2.1 AA): ein Schalter je
+  Projekt, standardmäßig aus. Einschalten (`EINGESCHALTET = true`, im PR begründet), wenn das
+  Produkt unter das Barrierefreiheitsgesetz fällt oder der Kunde es verlangt; geprüft werden
+  die Seiten aus `deploy/smoke.txt` mit Status 200. Tastatur und Screenreader prüft ein Mensch.
 - **`retries: 0`.** Ein Test, der beim zweiten Mal grün wird, ist rot (flaky) und wird
   repariert, nicht wiederholt. Nachts auf dem Dev-Server `E2E_REPEAT=2`; Ergebnis als
   `tests/e2e/ergebnis.json`. Die Spezifikationen werden mit `tsc -p tests/e2e` typgeprüft
