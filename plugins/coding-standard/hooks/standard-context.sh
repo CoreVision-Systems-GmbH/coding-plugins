@@ -126,6 +126,33 @@ if [ -f "$proj/.githooks/pre-commit" ] && git -C "$proj" rev-parse --is-inside-w
     fi
 fi
 
+# ----------------------------------------------------------- Offene Arbeit
+# Ein neues Thema auf einem Zweig mit offener Arbeit mischt zwei Anliegen in einem PR (Kern, „Git &
+# Lieferung“). Der Hook meldet nur, was lokal belegbar ist — Änderungen ohne Commit, Commits ohne
+# Push; ob ein PR offen ist, wüsste nur GitHub, und ein Netzaufruf bremste jeden Start. Nur ein
+# Hinweis: Nach einer Kompaktierung mitten im Thema ist offene Arbeit der Normalfall.
+offen_hinweis=""
+if git -C "$proj" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    zweig="$(git -C "$proj" symbolic-ref --short -q HEAD 2>/dev/null || echo "HEAD (losgelöst)")"
+    # GIT_OPTIONAL_LOCKS=0: status soll den Index nicht auffrischen und keinem parallelen git die
+    # Sperre wegnehmen — als Variable, weil ein git vor 2.15 die Option --no-optional-locks
+    # ablehnt (dann fehlte der Hinweis still), die Variable aber übergeht.
+    ohne_commit="$(GIT_OPTIONAL_LOCKS=0 git -C "$proj" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+    ohne_push=0
+    # Remote-Zweig gelöscht (Squash-Merge, dann fetch --prune): Die Commits hängen an keinem Remote
+    # mehr, gepusht und gemergt sind sie trotzdem — keine Push-Zahl, sondern der Weg zurück zu main.
+    weg="$(git -C "$proj" for-each-ref --format='%(upstream:track)' "refs/heads/$zweig" 2>/dev/null)"
+    # Ohne Remote gibt es kein Ziel für einen Push — sonst meldete jedes lokale Repo all seine Commits.
+    if [ "$weg" != "[gone]" ] && [ -n "$(git -C "$proj" remote 2>/dev/null)" ]; then
+        ohne_push="$(git -C "$proj" rev-list --count HEAD --not --remotes 2>/dev/null || echo 0)"
+    fi
+    if [ "$weg" = "[gone]" ]; then
+        offen_hinweis="Der Remote-Zweig von $zweig ist gelöscht, vermutlich gemergt (Änderungen ohne Commit: $ohne_commit) — für ein neues Thema auf main wechseln und nachziehen."
+    elif [ "$ohne_commit" -gt 0 ] || [ "$ohne_push" -gt 0 ]; then
+        offen_hinweis="Auf Zweig $zweig liegt offene Arbeit (Änderungen ohne Commit: $ohne_commit, Commits ohne Push: $ohne_push) — vor einem neuen Thema abschließen (Commit, PR, Merge) oder parken (Commit, Push, docs/status.md)."
+    fi
+fi
+
 # ------------------------------------------------------------------ Ausgabe
 erkannt="keiner"
 dateien="$root/core/kern.md"
@@ -154,4 +181,5 @@ Aktionen nur nach Bestätigung.
 EOF
 [ -n "$fehlend" ] && echo "Hinweis: für$fehlend gibt es noch kein Overlay — es gilt nur der Kern."
 [ -n "$hooks_hinweis" ] && echo "Hinweis: $hooks_hinweis"
+[ -n "$offen_hinweis" ] && echo "Hinweis: $offen_hinweis"
 exit 0

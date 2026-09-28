@@ -7,6 +7,23 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.5.0] — 2026-09-29
+
+### Hinzugefügt
+
+- **Erst Offenes abschließen, dann ein neues Thema** (Kern, „Git & Lieferung“): Arbeit ohne
+  Commit, ohne Push oder mit offenem PR wird zuerst abgeschlossen (Commit, PR, Merge) oder bewusst
+  geparkt (Commit und Push, Stand in `docs/status.md`); das neue Thema beginnt auf einem neuen
+  Zweig vom aktuellen `main`. Nach `/projekt-neu` und `/projekt-aufnehmen` ist das zuerst deren
+  PR — beide Skills sagen es im Abschluss. Der Sessionstart meldet, was lokal offen ist: Zweig,
+  Änderungen ohne Commit, Commits ohne Push; ist der Remote-Zweig gelöscht (nach dem Merge), rät
+  er zum Wechsel auf `main`.
+
+### Behoben
+
+- `/projekt-neu` (Nacharbeit) und `/projekt-aufnehmen` stagen im Commit-Schritt mit exakten
+  Pfaden statt mit `git add -A`, das der Git-Guard blockt.
+
 ## [1.4.0] — 2026-09-27
 
 ### Hinzugefügt

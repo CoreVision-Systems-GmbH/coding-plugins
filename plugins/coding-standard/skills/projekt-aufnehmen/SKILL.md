@@ -96,7 +96,9 @@ Dann PR (Vorlage füllen; „Nicht Teil davon: Stufe 2 und 3, siehe ADR“), CI 
 Squash-Merge — nie direkt auf `main`:
 
 ```bash
-cd <pfad> && git add -A && git commit -m "chore: Aufnahme in den Firmenstandard (Stack <stack>)"
+cd <pfad> && git status --short     # jede Datei sichten: nur die Aufnahme, keine .env
+# exakte Pfade — `git add -A` blockt der Git-Guard
+cd <pfad> && git add <datei> … && git commit -m "chore: Aufnahme in den Firmenstandard (Stack <stack>)"
 git push -u origin chore/firmenstandard-aufnahme
 gh pr create --fill
 gh pr checks --watch
@@ -123,6 +125,8 @@ Ende 2026 gilt auch hier.
 
 ## 7. Abschluss
 
-Angelegte Dateien, PR-Link, die offenen Punkte aus `docs/status.md`. Schließe mit:
+Angelegte Dateien, PR-Link, die offenen Punkte aus `docs/status.md`. Ist der PR noch nicht
+gemergt, sag das ausdrücklich: Er ist der erste Schritt der neuen Session — vor Stufe 2 und
+jedem neuen Thema (Kern, „Git & Lieferung“). Schließe mit:
 
 > Claude jetzt in `<pfad>` neu starten — ab dann gilt der Standard automatisch.

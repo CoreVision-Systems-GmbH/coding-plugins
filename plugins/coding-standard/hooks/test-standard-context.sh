@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Prüft standard-context.sh gegen Wegwerf-Projekte: Aktivierung, Stack-Erkennung, Größe, Notausgang.
+# Prüft standard-context.sh gegen Wegwerf-Projekte: Aktivierung, Stack-Erkennung, Prüfhooks, offene
+# Arbeit, Größe, Notausgang.
 set -u
 hier="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$hier/.." && pwd)"
@@ -119,10 +120,48 @@ printf '[core]\n\thooksPath = %s\n' "$tmp/global-hooks" > "$tmp/gitconfig-global
 out="$(lauf "$d" "GIT_CONFIG_GLOBAL=$tmp/gitconfig-global")"
 if [ -z "$(git -C "$d" config --local --get core.hooksPath)" ] && grep -q 'global auf' <<<"$out"; then echo "ok    globaler hooksPath bleibt, Hinweis kommt"; else echo "FEHLER globaler hooksPath bleibt, Hinweis kommt"; echo "$out" | tail -2 | sed 's/^/      | /'; fehler=$((fehler+1)); fi
 
-# Größe: Claude Code blendet Hook-Ausgaben über ~2 KB nur als Vorschau ein.
-d="$tmp/groesse"; aktiviert "$d"; echo '{"require":{"laravel/framework":"^13"}}' > "$d/composer.json"; printf 'fastapi==0.115.6\n' > "$d/requirements.txt"; vorlagen_hook "$d"; git_repo "$d"
-bytes=$(lauf "$d" | wc -c)
-if [ "$bytes" -lt 1800 ]; then echo "ok    Ausgabe klein genug ($bytes Bytes < 1800)"; else echo "FEHLER Ausgabe zu groß ($bytes Bytes) — wird von Claude Code abgeschnitten"; fehler=$((fehler+1)); fi
+# Offene Arbeit: Änderungen ohne Commit oder Commits ohne Push → Hinweis; sauber (und gepusht) →
+# keiner; Remote-Zweig gelöscht → Weg zurück zu main. Git ohne die Konfiguration des Rechners (leere
+# globale, keine System-Datei), damit Zählung, Commit und Push nicht von ihr abhängen.
+: > "$tmp/leer.gitconfig"
+iso="GIT_CONFIG_GLOBAL=$tmp/leer.gitconfig GIT_CONFIG_NOSYSTEM=1"
+g() { local dir="$1"; shift; env GIT_CONFIG_GLOBAL="$tmp/leer.gitconfig" GIT_CONFIG_NOSYSTEM=1 git -C "$dir" -c user.name=Test -c user.email=test@example.invalid "$@" >/dev/null 2>&1; }
+offen() { # <name> <projektdir> <erwartung: Text des Hinweises | keiner>
+    local out; out="$(lauf "$2" "$iso")"
+    if { [ "$3" = keiner ] && ! grep -qE 'offene Arbeit|Remote-Zweig von' <<<"$out"; } || { [ "$3" != keiner ] && grep -qF "$3" <<<"$out"; }; then echo "ok    $1"; else echo "FEHLER $1 (erwartet: $3)"; echo "$out" | tail -2 | sed 's/^/      | /'; fehler=$((fehler+1)); fi
+}
+d="$tmp/offen-dateien"; aktiviert "$d"; git_repo "$d"
+offen "Änderung ohne Commit: Hinweis" "$d" "Auf Zweig main liegt offene Arbeit (Änderungen ohne Commit: 1, Commits ohne Push: 0)"
+g "$d" add .claude/settings.json; g "$d" commit -q -m "chore: Gerüst"
+offen "sauber, ohne Remote: kein Hinweis" "$d" keiner
+g "$tmp" init -q --bare -b main offen-remote.git; g "$d" remote add origin "$tmp/offen-remote.git"; g "$d" push -q origin main
+g "$d" switch -q -c feat/neu; g "$d" commit -q --allow-empty -m "feat: Arbeit"
+offen "Commit ohne Push: Hinweis mit Zweig" "$d" "Auf Zweig feat/neu liegt offene Arbeit (Änderungen ohne Commit: 0, Commits ohne Push: 1)"
+g "$d" push -q -u origin feat/neu
+offen "gepusht und sauber: kein Hinweis" "$d" keiner
+g "$d" switch -q --detach; g "$d" commit -q --allow-empty -m "feat: losgelöst"
+offen "losgelöster HEAD: so benannt" "$d" "Auf Zweig HEAD (losgelöst) liegt offene Arbeit (Änderungen ohne Commit: 0, Commits ohne Push: 1)"
+g "$d" switch -q feat/neu
+# Squash-Merge auf GitHub löscht den Remote-Zweig, fetch --prune den Verweis: Die Commits hängen an
+# keinem Remote mehr, sind aber geliefert — also keine Push-Zahl.
+g "$d" push -q origin --delete feat/neu; g "$d" fetch -q --prune origin
+offen "Remote-Zweig gelöscht: vermutlich gemergt, keine Push-Zahl" "$d" "Der Remote-Zweig von feat/neu ist gelöscht, vermutlich gemergt (Änderungen ohne Commit: 0)"
+d="$tmp/offen-unborn"; aktiviert "$d"; git_repo "$d"; g "$d" remote add origin "$tmp/offen-remote.git"
+offen "ohne Commit, mit Remote: Push-Zahl 0" "$d" "(Änderungen ohne Commit: 1, Commits ohne Push: 0)"
+err="$(lauf "$d" "$iso" 2>&1 >/dev/null)"
+if [ -z "$err" ]; then echo "ok    ohne Commit, mit Remote: nichts auf stderr"; else echo "FEHLER ohne Commit, mit Remote: nichts auf stderr ($err)"; fehler=$((fehler+1)); fi
+d="$tmp/offen-mono"; mkdir -p "$d/apps/x"; git_repo "$d"; aktiviert "$d/apps/x"
+offen "Unterordner eines Repos: zählt das ganze Repo" "$d/apps/x" "Auf Zweig main liegt offene Arbeit (Änderungen ohne Commit: 1,"
+d="$tmp/offen-ohne-git"; aktiviert "$d"
+offen "ohne Git-Repo: kein Hinweis" "$d" keiner
+
+# Größe: Claude Code blendet Hook-Ausgaben über ~2 KB nur als Vorschau ein. Gemessen mit allen drei
+# Hinweisen in der längeren Form (kein Overlay, globaler hooksPath, offene Arbeit) und einem langen
+# Zweignamen.
+d="$tmp/groesse"; aktiviert "$d"; echo '{"require":{"laravel/framework":"^13"}}' > "$d/composer.json"; printf 'fastapi==0.115.6\n' > "$d/requirements.txt"; printf 'stack: unbekannt\n' > "$d/.coding-standard"; vorlagen_hook "$d"
+git -C "$d" init -q -b chore/firmenstandard-nacharbeit >/dev/null 2>&1
+out="$(lauf "$d" "GIT_CONFIG_GLOBAL=$tmp/gitconfig-global")"; bytes=$(printf '%s\n' "$out" | wc -c)
+if [ "$bytes" -lt 1800 ] && grep -q 'kein Overlay' <<<"$out" && grep -q 'global auf' <<<"$out" && grep -q 'offene Arbeit' <<<"$out"; then echo "ok    Ausgabe klein genug ($bytes Bytes < 1800)"; else echo "FEHLER Ausgabe zu groß ($bytes Bytes, ab 1800 schneidet Claude Code ab) oder nicht alle drei Hinweise"; fehler=$((fehler+1)); fi
 
 echo
 if [ "$fehler" -eq 0 ]; then echo "Alle Fälle grün."; else echo "Fehler: $fehler"; exit 1; fi

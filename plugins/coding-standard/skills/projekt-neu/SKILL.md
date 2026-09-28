@@ -179,7 +179,9 @@ Erst wenn er grün ist — und nur über einen PR, nie direkt auf `main` (den Pu
 blockt der Git-Guard ohnehin):
 
 ```bash
-git add -A && git commit -m "chore: Firmenstandard-Nacharbeit (Fassung, TrustProxies, Prüfungen)"
+git status --short     # jede Datei sichten: nur die Nacharbeit, keine .env, keine Dumps
+git add <datei> …      # exakte Pfade — `git add -A` blockt der Git-Guard
+git commit -m "chore: Firmenstandard-Nacharbeit (Fassung, TrustProxies, Prüfungen)"
 git push -u origin chore/firmenstandard-nacharbeit
 gh pr create --fill
 gh pr checks --watch
@@ -202,6 +204,8 @@ Seiten leer an.
 ## 6. Abschluss
 
 Gib die Liste **Offene Handgriffe** aus dem Abschlussbericht des Skripts wieder — sie ist die
-eigentliche Übergabe. Schließe mit:
+eigentliche Übergabe. Ist der PR der Nacharbeit noch nicht gemergt, sag das ausdrücklich, mit
+Link: Er ist der erste Schritt der neuen Session — vor Servern, Konzept und Features, damit sich
+die Themen nicht mischen (Kern, „Git & Lieferung“). Schließe mit:
 
 > Claude jetzt in `<zielordner>` neu starten — ab dann gilt der Standard automatisch.
