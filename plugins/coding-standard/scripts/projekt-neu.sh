@@ -109,6 +109,71 @@ gh_pfad() {
     fi
 }
 
+# Token, Schalter und App der Claude-Durchsicht kann eine Organisation zentral halten
+# (CoreVision-Systems-GmbH: Org-Secret und Org-Variable mit Sichtbarkeit „all“, App für alle
+# Repos). Am 2026-09-29 genau so passiert: Der Bericht verlangte pauschal ein Repo-Secret, obwohl
+# das Org-Secret längst griff — ein unnötiger Token und ein gescheiterter Versuch über '!' in
+# Claude Code. Deshalb wird nachgesehen und nur genannt, was wirklich fehlt.
+# Verglichen wird auf den erwarteten Wert, nie auf „nicht leer“: Bei einem HTTP-Fehler schreibt
+# gh den Fehlertext nach stdout, ohne --jq anzuwenden — das sähe sonst wie ein Treffer aus.
+org_secret_da() { # <owner>/<repo>
+    [ "$("$GH" api "repos/$1/actions/organization-secrets?per_page=100" \
+        --jq '.secrets[] | select(.name == "CLAUDE_CODE_OAUTH_TOKEN") | .name' 2>/dev/null || true)" \
+        = CLAUDE_CODE_OAUTH_TOKEN ]
+}
+
+org_schalter_an() { # <owner>/<repo>
+    [ "$("$GH" api "repos/$1/actions/organization-variables?per_page=100" \
+        --jq '.variables[] | select(.name == "CLAUDE_REVIEW_ENABLED") | .value' 2>/dev/null || true)" = true ]
+}
+
+# Die Installationen einer Organisation sieht nur ihr Inhaber. Ein Fehler heißt deshalb „nicht
+# prüfbar“, nicht „fehlt“ — sonst verlangte der Bericht von einem Mitglied eine Freigabe, die
+# längst besteht und die es gar nicht erteilen darf.
+org_app_stand() { # <owner> → all | fehlt | unbekannt
+    local wert
+    if wert="$("$GH" api "orgs/$1/installations?per_page=100" \
+        --jq '.installations[] | select(.app_slug == "claude") | .repository_selection' 2>/dev/null)"; then
+        case "$wert" in all) echo all ;; *) echo fehlt ;; esac
+    else
+        echo unbekannt
+    fi
+}
+
+handgriff_durchsicht() { # <owner> <name>
+    local ziel="$1/$2" secret=0 schalter=0 app
+    org_secret_da "$ziel" && secret=1
+    org_schalter_an "$ziel" && schalter=1
+    app="$(org_app_stand "$1")"
+    if [ $((secret + schalter)) -eq 2 ] && [ "$app" = all ]; then
+        printf ' * Claude-Durchsicht der Pull Requests: nichts zu tun — Token, Schalter und\n'
+        printf "   GitHub-App 'Claude' kommen von der Organisation %s.\n" "$1"
+        return 0
+    fi
+    printf ' * Claude-Durchsicht der Pull Requests einschalten:\n'
+    if [ "$secret" -eq 0 ]; then
+        cat <<EOF
+   Token — in einem eigenen Terminal-Fenster (unter Windows: PowerShell),
+   NICHT über '!' in Claude Code: 'claude setup-token' braucht einen
+   Browser-Login, 'gh secret set' fragt den Wert verdeckt ab.
+       claude setup-token
+   Im Browser anmelden und erlauben; den ausgegebenen Token (beginnt mit
+   sk-ant-oat01-) vollständig kopieren. Dann im selben Fenster:
+       gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo $ziel
+   Bei der Abfrage einfügen (die Eingabe bleibt unsichtbar) und Enter.
+EOF
+    fi
+    [ "$schalter" -eq 1 ] \
+        || printf '   Schalter:\n       gh variable set CLAUDE_REVIEW_ENABLED --body true --repo %s\n' "$ziel"
+    case "$app" in
+        fehlt) printf "   GitHub-App 'Claude' für %s freigeben: https://github.com/apps/claude\n" "$ziel" ;;
+        unbekannt)
+            printf "   GitHub-App 'Claude': nicht prüfbar (in einer Organisation sieht die Installationen\n"
+            printf '   nur ihr Inhaber, ein Benutzerkonto kennt diese Abfrage nicht). Nachsehen und bei\n'
+            printf '   Bedarf für %s freigeben: https://github.com/apps/claude\n' "$ziel" ;;
+    esac
+}
+
 stack_lesen() { # <stack> — setzt LABEL DESCRIPTION REQUIRES CONTAINERIZED MARKER
     LABEL=""; DESCRIPTION=""; REQUIRES=""; DATABASE=""; CONTAINERIZED=0; MARKER=0
     # shellcheck disable=SC1090
@@ -424,12 +489,8 @@ Offene Handgriffe (nichts davon macht dieses Skript):
 EOF
 
 if [ "$MIT_GITHUB" -eq 1 ]; then
+    handgriff_durchsicht "$OWNER" "$NAME"
     cat <<EOF
- * Claude-Durchsicht der Pull Requests einschalten:
-       claude setup-token
-       gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo $OWNER/$NAME
-       gh variable set CLAUDE_REVIEW_ENABLED --body true --repo $OWNER/$NAME
-   Dazu die GitHub-App 'Claude' für $OWNER/$NAME freigeben.
  * Hauptzweig schützen (PR-Pflicht, Pflicht-Check 'ci', kein Force-Push,
    Squash-Merge):
        bash <pfad-zu>/claude-standard/scripts/apply-rulesets.sh $OWNER/$NAME

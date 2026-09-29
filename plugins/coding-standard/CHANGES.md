@@ -7,6 +7,24 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.7.1] — 2026-09-29
+
+### Behoben
+
+- `geoblock check` und `setup-server.sh --check` meldeten auf echten Servern „Tabelle ohne Länder
+  geladen“, obwohl die Sperre vollständig geladen war (beim Ausrollen auf Dev gefunden). Ursache:
+  `grep -q` beendete die Pipeline, bevor `nft` alle Bereiche geschrieben hatte.
+- `setup-server.sh` hielt eine SSH-Regel nur aus dem LAN (`22/tcp ALLOW 10.13.0.0/24`) für
+  öffentliches SSH und meldete bei jedem Lauf „geschlossen“, ohne etwas zu ändern. Jetzt zählt nur
+  eine Regel von `Anywhere`.
+- **`/projekt-neu` verlangt keinen überflüssigen Token mehr.** Der Abschlussbericht sieht nach,
+  ob die Organisation Token, Schalter und GitHub-App der Claude-Durchsicht schon hält — in
+  CoreVision-Systems-GmbH ist das so —, und nennt nur, was wirklich fehlt. Muss doch ein Token
+  her, steht die Anleitung Schritt für Schritt da und ausdrücklich für ein eigenes
+  Terminal-Fenster: über `!` in Claude Code hängt `claude setup-token`.
+- Der Skill `/projekt-neu` prüft zum Abschluss jeden offenen Handgriff am Ist-Zustand und
+  nennt das Offene von selbst mit genauer Anleitung, nicht erst auf Nachfrage.
+
 ## [1.7.0] — 2026-09-29
 
 ### Hinzugefügt

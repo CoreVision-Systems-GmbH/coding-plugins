@@ -667,7 +667,9 @@ check() {
     printf '\n== Geoblocking\n'
     if [ -f "$KONF" ]; then ok "Länder: $(konf_laender)"; else befund "Geoblocking nicht eingerichtet (geoblock einrichten)"; fi
     if ! tabelle_geladen; then befund "Tabelle $TABELLE nicht geladen (geoblock laden)"
-    elif ! nft list set inet "$TABELLE" erlaubt4 2>/dev/null | grep -q "elements"; then
+    # grep -c statt -q: -q hört nach dem ersten Treffer auf, nft schreibt die 27.000 Bereiche
+    # weiter, bekommt SIGPIPE, und pipefail machte daraus „ohne Länder“ (am 2026-09-29 auf Dev).
+    elif [ "$(nft list set inet "$TABELLE" erlaubt4 2>/dev/null | grep -c "elements")" -eq 0 ]; then
         befund "Tabelle $TABELLE ohne Länder geladen — alles Öffentliche gesperrt (geoblock aktualisieren)"
     else ok "Tabelle $TABELLE geladen"; fi
     if systemctl is-failed -q corevision-geoblock.service 2>/dev/null; then

@@ -2,7 +2,10 @@ name: claude-review
 
 # Automatische Durchsicht jedes Pull Requests durch Claude.
 #
-# Zwei Handgriffe je Repository, einmalig:
+# Hält die Organisation Token, Schalter und App zentral (Org-Secret CLAUDE_CODE_OAUTH_TOKEN,
+# Org-Variable CLAUDE_REVIEW_ENABLED, GitHub-App „Claude" für alle Repos), ist hier nichts zu
+# tun — `projekt-neu.sh` sieht beim Anlegen nach. Sonst einmalig je Repository, in einem eigenen
+# Terminal-Fenster und nicht über '!' in Claude Code (Browser-Login, verdeckte Eingabe):
 #
 #     claude setup-token
 #     gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo {{OWNER}}/{{NAME}}

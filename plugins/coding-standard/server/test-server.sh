@@ -58,7 +58,10 @@ stub "$S" nft 'echo "nft $*" >> "$ZUSTAND/log"
 case "$1" in
   -c) [ ! -f "$ZUSTAND/nft-ungueltig" ];;
   -f) [ ! -f "$ZUSTAND/nft-ungueltig" ] && cp "$2" "$ZUSTAND/nft-geladen";;
-  list) [ -f "$ZUSTAND/nft-geladen" ] && cat "$ZUSTAND/nft-geladen";;
+  # list set schreibt wie das echte nft viel mehr, als in eine Pipe passt: Wer mit grep -q liest,
+  # bekommt SIGPIPE zu spüren (am 2026-09-29 auf Dev: 27.000 Bereiche).
+  list) [ -f "$ZUSTAND/nft-geladen" ] || exit 1; cat "$ZUSTAND/nft-geladen"
+        [ "$2" = set ] && for ((i = 1; i <= 4000; i++)); do printf "\t\t\t203.0.113.%d, 198.51.100.%d, 192.0.2.%d, 203.0.113.%d,\n" $i $i $i $i; done; true;;
   delete) rm -f "$ZUSTAND/nft-geladen";;
   get) for f in $(cat "$ZUSTAND/nft-fremd" 2>/dev/null); do [ "$6" = "{ $f }" ] && exit 1; done; true;;
 esac'
@@ -248,6 +251,12 @@ grep -q "ufw --force delete allow 22/tcp" "$w/zustand/log"; [ $? -ne 0 ]; behaup
 : > "$w/zustand/log"
 TS_IP=100.64.0.5 SSH_CONNECTION="100.100.1.2 5000 100.64.0.5 22" lauf "$w" "$SETUP" >/dev/null
 grep -q "ufw --force delete allow 22/tcp" "$w/zustand/log"; behaupte "SSH: Gegenstelle im Tailnet (100.64/10) → 22 schließt" $?
+# SSH nur aus dem LAN (eigene Regel des Betreibers): kein „geschlossen“, nichts gelöscht, zweiter Lauf still
+printf '22/tcp                     ALLOW       10.13.0.0/24               # SSH aus dem LAN\n' > "$w/zustand/ufw-regeln"
+: > "$w/zustand/log"
+out="$(TS_IP=100.64.0.5 SSH_CONNECTION="100.100.1.2 5000 100.64.0.5 22" lauf "$w" "$SETUP")"
+! grep -q "ufw --force delete allow 22/tcp" "$w/zustand/log" && ! printf '%s' "$out" | grep -q "SSH geschlossen" \
+    && grep -q "10.13.0.0/24" "$w/zustand/ufw-regeln"; behaupte "SSH: Regel nur aus dem LAN bleibt, keine falsche Meldung „geschlossen“" $?
 grep -q "^ZIEL_IP=100.64.0.5$" "$w/etc/corevision/server.env"; behaupte "Dev: Ziel-IP folgt der Tailscale-IP" $?
 TS_IP=100.64.0.77 SSH_CONNECTION="100.100.1.2 5000 100.64.0.77 22" lauf "$w" "$SETUP" >/dev/null
 grep -q "^ZIEL_IP=100.64.0.77$" "$w/etc/corevision/server.env" && grep -q "^BIND_IP=100.64.0.77$" "$w/opt/edge/.env"; behaupte "Dev: neue Tailscale-IP → Ziel und Bindung ziehen nach" $?

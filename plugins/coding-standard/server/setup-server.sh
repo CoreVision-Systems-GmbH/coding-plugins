@@ -232,7 +232,10 @@ if [ $nur_pruefen -eq 0 ]; then
         # läuft. Unbekannte Gegenstelle (Konsole, sudo ohne Terminal) → offen lassen.
         regeln+=("allow 22/tcp")
         handgriff "SSH ist noch öffentlich offen. Über das Tailnet neu verbinden (ssh <name>@$([ -n "$ts_ip" ] && echo "$ts_ip" || echo '<tailscale-ip>')) und dieses Skript erneut starten — dann bleibt SSH nur im Tailnet"
-    elif ufw status 2>/dev/null | grep -qE '^22/tcp +ALLOW'; then
+    # Nur die öffentliche Regel (von Anywhere): Eine eingeschränkte wie „22/tcp ALLOW 10.13.0.0/24“
+    # (SSH aus dem LAN) ist Absicht — sie passte früher auch, und jeder Lauf meldete fälschlich
+    # „geschlossen“, ohne dass ufw etwas löschte (am 2026-09-29 auf Dev).
+    elif ufw status 2>/dev/null | grep -qE '^22/tcp +ALLOW +Anywhere'; then
         if [ $trocken -eq 1 ]; then tun "würde öffentliches SSH schließen (ufw delete allow 22/tcp)"
         else ufw --force delete allow 22/tcp >/dev/null; tun "öffentliches SSH geschlossen — SSH nur noch über das Tailnet"; fi
     fi

@@ -204,7 +204,19 @@ Seiten leer an.
 ## 6. Abschluss
 
 Gib die Liste **Offene Handgriffe** aus dem Abschlussbericht des Skripts wieder — sie ist die
-eigentliche Übergabe. Ist der PR der Nacharbeit noch nicht gemergt, sag das ausdrücklich, mit
+eigentliche Übergabe —, und zwar **von selbst und vollständig**, nicht erst auf Nachfrage:
+
+- Jeden Handgriff zuerst am Ist-Zustand prüfen (`gh`: Secrets und Variablen von Repo **und**
+  Organisation, Rulesets, `deployments`-Repo), Erledigtes mit Nachweis abhaken, Offenes mit
+  genauer Schritt-für-Schritt-Anleitung nennen. Was du selbst tun darfst (Variable, Ruleset),
+  anbieten statt nur aufzählen.
+- Befehle mit Browser-Login oder verdeckter Eingabe (`claude setup-token`, `gh auth login`,
+  `gh secret set` ohne `--body`) **von Anfang an** für ein eigenes Terminal-Fenster anleiten,
+  nie über `!` in Claude Code: Dort gibt es keine interaktive Eingabe. Am 2026-09-29 genau so
+  passiert — `claude setup-token` hing über `!`, bis er abgebrochen wurde, die Anleitung
+  musste zweimal nachgesteuert werden, und das Org-Secret griff ohnehin längst.
+
+Ist der PR der Nacharbeit noch nicht gemergt, sag das ausdrücklich, mit
 Link: Er ist der erste Schritt der neuen Session — vor Servern, Konzept und Features, damit sich
 die Themen nicht mischen (Kern, „Git & Lieferung“). Schließe mit:
 

@@ -3,8 +3,9 @@
 #
 #     bash plugins/coding-standard/scripts/test-projekt-neu.sh
 #
-# Die Proben laufen mit --no-github in einem Wegwerf-Verzeichnis; es entsteht
-# kein Repository auf GitHub und nichts außerhalb von $TMPDIR. Die
+# Die Proben laufen mit --no-github oder gegen eine gh-Attrappe in einem
+# Wegwerf-Verzeichnis; es entsteht kein Repository auf GitHub und nichts
+# außerhalb von $TMPDIR. Die
 # FastAPI-Probe legt eine virtuelle Umgebung an und installiert die gepinnten
 # Abhängigkeiten — das dauert eine halbe bis eine Minute. Die Astro-Probe lädt
 # die npm-Abhängigkeiten aus dem Netz, baut die Site und prüft dist/ — noch
@@ -278,6 +279,69 @@ git -C "$pdir" add probe.txt
 [ "$(git -C "$pdir" rev-list --count HEAD)" = "1" ] \
     && ok "Hook stoppt den Commit über core.hooksPath" \
     || nichtok "Hook stoppt den Commit über core.hooksPath"
+
+# --------------------------------------------- Bericht mit GitHub (gh-Attrappe)
+echo
+echo "== Bericht: Claude-Durchsicht nur nennen, was fehlt"
+
+# Die Attrappe antwortet wie das echte gh, auch im Fehlerfall: Fehlertext auf stdout, Exit 1.
+# Genau daran hielt der erste Entwurf am 2026-09-29 ein fehlendes Org-Secret für vorhanden.
+# SECRET, SCHALTER und APP steuern die drei Antworten einzeln, damit „nur das Fehlende nennen“
+# prüfbar ist; APP=fehler steht für ein Mitglied ohne Inhaberrechte.
+attrappe="$tmp/attrappe-gh"; mkdir -p "$attrappe"
+cat > "$attrappe/gh" <<EOF
+#!$BASH
+fehlt() { printf '{"message":"Not Found","status":"404"}'; exit 1; }
+case "\$1 \$2" in
+    "auth status"|"repo create") exit 0 ;;
+    "repo view") exit 1 ;;
+    "api user") echo tester ;;
+    "api orgs/musterorg") echo '{}' ;;
+    "api orgs/musterorg/installations"*) case "\$APP" in all|selected) echo "\$APP" ;; *) fehlt ;; esac ;;
+    "api repos/"*"/actions/organization-secrets"*) [ "\$SECRET" = ja ] && echo CLAUDE_CODE_OAUTH_TOKEN || fehlt ;;
+    "api repos/"*"/actions/organization-variables"*) [ "\$SCHALTER" = ja ] && echo true || fehlt ;;
+    *) echo "gh-Attrappe: unerwarteter Aufruf: \$*" >&2; exit 1 ;;
+esac
+EOF
+chmod +x "$attrappe/gh"
+
+bericht() { # <name> <SECRET> <SCHALTER> <APP> — legt ein Projekt gegen die Attrappe an
+    PATH="$attrappe:$PATH" SECRET="$2" SCHALTER="$3" APP="$4" lauf 0 "Projekt mit GitHub entsteht ($1)" \
+        --name "$1" --stack script --owner musterorg \
+        --purpose "Wegwerfprobe des Berichts." --dir "$tmp/$1"
+}
+bericht_nennt() { # <fall> <ja|nein> <text>
+    if grep -qF -- "$3" <<<"$LETZTE_AUSGABE"; then [ "$2" = ja ]; else [ "$2" = nein ]; fi \
+        && ok "Bericht $1: $([ "$2" = ja ] || echo 'nicht ')$3" \
+        || nichtok "Bericht $1: $([ "$2" = ja ] || echo 'nicht ')$3"
+}
+
+bericht probe-org ja ja all
+bericht_nennt "Org hält alles" ja 'Claude-Durchsicht der Pull Requests: nichts zu tun'
+for text in 'setup-token' 'gh secret set' 'gh variable set' 'apps/claude'; do
+    bericht_nennt "Org hält alles" nein "$text"
+done
+
+bericht probe-eigen nein nein fehler
+for text in "NICHT über '!'" 'claude setup-token' \
+            'gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo musterorg/probe-eigen' \
+            'gh variable set CLAUDE_REVIEW_ENABLED --body true --repo musterorg/probe-eigen' \
+            "GitHub-App 'Claude': nicht prüfbar"; do
+    bericht_nennt "Org hält nichts, App nicht prüfbar" ja "$text"
+done
+
+bericht probe-mitglied ja ja fehler
+bericht_nennt "Mitglied ohne Inhaberrechte" ja "GitHub-App 'Claude': nicht prüfbar"
+for text in 'nichts zu tun' 'setup-token' 'gh secret set' 'gh variable set'; do
+    bericht_nennt "Mitglied ohne Inhaberrechte" nein "$text"
+done
+
+bericht probe-misch ja nein selected
+bericht_nennt "nur Schalter und App fehlen" ja 'gh variable set CLAUDE_REVIEW_ENABLED --body true --repo musterorg/probe-misch'
+bericht_nennt "nur Schalter und App fehlen" ja "GitHub-App 'Claude' für musterorg/probe-misch freigeben"
+for text in 'setup-token' 'gh secret set' 'nicht prüfbar' 'nichts zu tun'; do
+    bericht_nennt "nur Schalter und App fehlen" nein "$text"
+done
 
 # --------------------------------------------------------------- Probe fastapi
 echo
