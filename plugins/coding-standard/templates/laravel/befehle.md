@@ -11,6 +11,7 @@
 | Entwicklung                                   | `composer dev`                                   |
 | CI-Äquivalent                                 | `composer ci:setup && composer ci:check`         |
 | Dev-Instanz (Dev-Server)                      | `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>`   |
+| Gehärteter Verbund startet (CI)               | `bash deploy/container-test.sh`                   |
 
 **Nie `composer setup` aufrufen** — der Befehl enthält `php artisan migrate --force` und
 schreibt in die Datenbank. Für die Einrichtung ohne Wanderung: `composer ci:setup`.

@@ -62,17 +62,34 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint
 
 WORKDIR /app
-COPY --from=builder --chown=www-data:www-data /app /app
+# Der Code gehört root: Der Prozess läuft als www-data (unten) und darf nur storage
+# und bootstrap/cache schreiben — so schützt nicht allein read_only vor einer
+# Hintertür in public/ oder vendor/.
+COPY --from=builder /app /app
 
 # Die Verknüpfung public/storage entsteht beim Bau: Zur Laufzeit ist das
 # Wurzeldateisystem schreibgeschützt (compose.yaml), der Entrypoint könnte
-# sie nicht mehr anlegen.
-RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
+# sie nicht mehr anlegen. Die Ordner einzeln: RUN läuft unter /bin/sh, und dash
+# kennt keine Klammer-Erweiterung — {cache,sessions,views} wurde ein Ordnername.
+RUN mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views \
+        storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache \
     && php artisan storage:link
 
 ENV SERVER_NAME=:8080
+
+# Das Basisabbild gibt frankenphp die File-Capability cap_net_bind_service (für :80/:443).
+# compose.yaml verwirft mit cap_drop: ALL alle Capabilities, und der Kernel verweigert
+# dann den Start der Datei („Operation not permitted“). Die App hört auf 8080 und braucht
+# die Capability nicht. Am 2026-09-29 beim ersten Start auf dem Dev-Server genau so passiert.
+RUN setcap -r /usr/local/bin/frankenphp
+
+# Nicht als root: Mit cap_drop: ALL fehlt root CAP_DAC_OVERRIDE, und das Volume
+# storage/app (www-data, 775) war für den Prozess nur lesbar — jede Datei-Ablage und
+# jeder temporäre Livewire-Upload wäre gescheitert (Probe Dev-Server, 2026-09-29).
+# Die tmpfs-Mounts in compose.yaml tragen dafür uid/gid 33.
+USER www-data
 
 EXPOSE 8080
 ENTRYPOINT ["entrypoint"]

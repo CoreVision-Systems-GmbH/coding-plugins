@@ -31,10 +31,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 
 # Kein Root: Ein Dienst, der nur lesen und in DATA_DIR schreiben muss, braucht
-# keine Rechte darüber hinaus.
+# keine Rechte darüber hinaus. Der Code unter /app gehört root — dienst darf ihn
+# lesen, nicht ändern; so schützt nicht allein read_only vor einer Hintertür.
 RUN useradd --system --create-home --uid 10001 dienst \
     && mkdir -p /data \
-    && chown -R dienst:dienst /app /data
+    && chown -R dienst:dienst /data
 USER dienst
 
 ENV {{ENV_PREFIX}}DATA_DIR=/data

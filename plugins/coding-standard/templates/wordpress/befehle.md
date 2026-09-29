@@ -7,6 +7,7 @@
 | Strukturprüfung (Theme, ENV-Schema)     | `composer test`                                               |
 | Sicherheitshinweise                     | `composer audit`                                              |
 | Dev-Instanz (Dev-Server, mit MariaDB)   | `deploy/dev.sh up` (Protokoll: `deploy/dev.sh logs`)          |
+| Gehärteter Verbund startet (CI)         | `bash deploy/container-test.sh`                               |
 | wp-cli in der Dev-Instanz               | `docker compose -p {{NAME}}-dev exec app wp <befehl>`         |
 
 Die Prüfungen laufen ohne Datenbank. Die Site selbst gibt es nur im Verbund mit MariaDB —

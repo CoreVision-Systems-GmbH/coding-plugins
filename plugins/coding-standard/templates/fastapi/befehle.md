@@ -11,6 +11,7 @@
 | Sicherheitshinweise               | `pip-audit -r requirements.txt`                    |
 | Lokal starten                     | `uvicorn app.main:app --reload --port 8080`        |
 | Dev-Instanz (Dev-Server)          | `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>`    |
+| Gehärteter Verbund startet (CI)   | `bash deploy/container-test.sh`                    |
 
 `scripts/check.sh` nimmt das Python aus `.venv`, die Umgebung muss dafür nicht aktiviert sein;
 die CI führt denselben Befehl aus. „Lokal starten“ braucht eine `.env` aus `.env.example` mit

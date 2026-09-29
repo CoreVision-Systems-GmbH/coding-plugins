@@ -8,19 +8,29 @@
 
 set -e
 
+# Die Ausgabe von artisan bleibt beim Warten still, beim Abbruch kommt sie mit: Jeder
+# Fehler beim Booten (fehlender Cache-Pfad, kaputte .env) scheitert hier zuerst und sah
+# früher aus wie eine unerreichbare Datenbank (Pilot, 2026-09-29).
 wait_for_database() {
     echo "Warte auf die Datenbank ..."
     i=0
-    until php artisan db:monitor --max=1 >/dev/null 2>&1; do
+    until ausgabe="$(php artisan db:monitor --max=1 2>&1)"; do
         i=$((i + 1))
         if [ "$i" -ge 60 ]; then
-            echo "Datenbank nach 60 Versuchen nicht erreichbar — Abbruch." >&2
+            echo "Datenbankprüfung nach 60 Versuchen gescheitert — Abbruch. Letzte Ausgabe von php artisan db:monitor:" >&2
+            printf '%s\n' "$ausgabe" | tail -n 20 >&2
             exit 1
         fi
         sleep 2
     done
     echo "Datenbank erreichbar."
 }
+
+# storage/framework ist ein tmpfs (compose.yaml) und beim Start leer. Laravel braucht
+# storage/framework/views schon beim Booten; fehlt es, scheitert jeder artisan-Aufruf mit
+# „Please provide a valid cache path.“ — und wait_for_database hielt das für eine
+# unerreichbare Datenbank. Am 2026-09-29 beim ersten Start auf dem Dev-Server genau so passiert.
+mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views
 
 if [ "$CONTAINER_ROLE" = "worker" ]; then
     wait_for_database

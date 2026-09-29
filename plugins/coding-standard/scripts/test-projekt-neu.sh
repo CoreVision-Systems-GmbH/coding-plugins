@@ -295,7 +295,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              app/modules/beispiel/schemas.py \
              tests/conftest.py tests/test_health.py tests/test_settings.py tests/test_security_txt.py \
              deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
-             deploy/smoke.sh deploy/smoke.txt scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
+             deploy/smoke.sh deploy/smoke.txt deploy/container-test.sh scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
              .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
              scripts/release-notes.sh scripts/check.sh \
              .github/workflows/tests.yml .github/workflows/release.yml .github/workflows/nightly.yml; do
@@ -306,6 +306,14 @@ done
     && ok "deploy/smoke.sh --dry-run listet die Routen" || nichtok "deploy/smoke.sh --dry-run listet die Routen"
 [ "$(git -C "$pdir" ls-files -s deploy/smoke.sh | cut -c1-6)" = "100755" ] \
     && ok "Ausführbar-Bit im Index: deploy/smoke.sh" || nichtok "Ausführbar-Bit im Index: deploy/smoke.sh"
+[ "$(git -C "$pdir" ls-files -s deploy/container-test.sh | cut -c1-6)" = "100755" ] \
+    && ok "Ausführbar-Bit im Index: deploy/container-test.sh" || nichtok "Ausführbar-Bit im Index: deploy/container-test.sh"
+{ grep -q '^RUN setcap -r ' "$pdir/Dockerfile" || ! grep -q 'frankenphp\|FROM caddy' "$pdir/Dockerfile"; } \
+    && ok "Dockerfile: File-Capability des Servers entfernt (sonst kein Start mit cap_drop: ALL)" \
+    || nichtok "Dockerfile: File-Capability des Servers entfernt (sonst kein Start mit cap_drop: ALL)"
+{ ! grep -q -- '--chown=' "$pdir/Dockerfile" && ! grep -qE 'chown .*(/app|/srv)( |$)' "$pdir/Dockerfile"; } \
+    && ok "Dockerfile: der Code gehört root (kein chown auf /app oder /srv)" \
+    || nichtok "Dockerfile: der Code gehört root (kein chown auf /app oder /srv)"
 grep -rlE '\{\{[A-Z_][A-Z0-9_]*\}\}' "$pdir" --exclude-dir=.venv >/dev/null 2>&1 \
     && nichtok "keine unersetzten Platzhalter" \
     || ok "keine unersetzten Platzhalter"
@@ -467,6 +475,21 @@ hook_stacks "$pdir" | grep -q 'Stack erkannt: fastapi' \
 echo
 echo "== Probe: Stack astro (mit npm install, Bau und Tests)"
 
+# container-test.sh fasst keine vorhandene .env an und kennt nur prod und dev — beides bricht
+# vor jedem docker-Aufruf ab (Probe: FastAPI).
+pdir="$tmp/probe-fastapi"
+env_da=0; [ -e "$pdir/.env" ] && env_da=1
+[ "$env_da" -eq 1 ] || : > "$pdir/.env"
+out="$(cd "$pdir" && bash deploy/container-test.sh 2>&1)"; rc=$?
+[ "$env_da" -eq 1 ] || rm -f "$pdir/.env"
+[ "$rc" -ne 0 ] && grep -q '.env ist vorhanden' <<<"$out" \
+    && ok "container-test.sh verweigert bei vorhandener .env" \
+    || nichtok "container-test.sh verweigert bei vorhandener .env (rc=$rc)"
+out="$(cd "$pdir" && bash deploy/container-test.sh gibt-es-nicht 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && grep -q 'Unbekannte Variante' <<<"$out" \
+    && ok "container-test.sh verweigert eine unbekannte Variante" \
+    || nichtok "container-test.sh verweigert eine unbekannte Variante (rc=$rc)"
+
 pdir="$tmp/probe-astro"
 lauf 0 "Projekt entsteht, Prüfungen grün" \
     --name probe-astro --stack astro --owner musterorg \
@@ -482,7 +505,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              tests/e2e/playwright.config.ts tests/e2e/smoke.spec.ts tests/e2e/sweep.spec.ts tests/e2e/tsconfig.json \
              tests/e2e/barrierefreiheit.spec.ts \
              deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
-             deploy/smoke.sh deploy/smoke.txt scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
+             deploy/smoke.sh deploy/smoke.txt deploy/container-test.sh scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
              .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
              scripts/release-notes.sh \
              .github/workflows/tests.yml .github/workflows/release.yml \
@@ -522,6 +545,14 @@ probe_vscode "$pdir"
     && ok "deploy/smoke.sh --dry-run listet die Routen" || nichtok "deploy/smoke.sh --dry-run listet die Routen"
 [ "$(git -C "$pdir" ls-files -s deploy/smoke.sh | cut -c1-6)" = "100755" ] \
     && ok "Ausführbar-Bit im Index: deploy/smoke.sh" || nichtok "Ausführbar-Bit im Index: deploy/smoke.sh"
+[ "$(git -C "$pdir" ls-files -s deploy/container-test.sh | cut -c1-6)" = "100755" ] \
+    && ok "Ausführbar-Bit im Index: deploy/container-test.sh" || nichtok "Ausführbar-Bit im Index: deploy/container-test.sh"
+{ grep -q '^RUN setcap -r ' "$pdir/Dockerfile" || ! grep -q 'frankenphp\|FROM caddy' "$pdir/Dockerfile"; } \
+    && ok "Dockerfile: File-Capability des Servers entfernt (sonst kein Start mit cap_drop: ALL)" \
+    || nichtok "Dockerfile: File-Capability des Servers entfernt (sonst kein Start mit cap_drop: ALL)"
+{ ! grep -q -- '--chown=' "$pdir/Dockerfile" && ! grep -qE 'chown .*(/app|/srv)( |$)' "$pdir/Dockerfile"; } \
+    && ok "Dockerfile: der Code gehört root (kein chown auf /app oder /srv)" \
+    || nichtok "Dockerfile: der Code gehört root (kein chown auf /app oder /srv)"
 
 # Verbund gegen docker compose prüfen, wo es das gibt (CI-Läufer): gültig mit gesetzten
 # Pflichtvariablen, verweigert ohne sie (`:?`). Die .env dafür kommt aus .env.example und
@@ -601,7 +632,7 @@ for datei in CLAUDE.md README.md Dockerfile compose.yaml compose.build.yaml \
              docker/Caddyfile docker/php.ini docker/php.dev.ini docker/entrypoint.sh \
              docker/sprachpakete.php \
              deploy/install.sh deploy/update.sh deploy/backup.sh deploy/dev.sh compose.dev.yaml \
-             deploy/smoke.sh deploy/smoke.txt scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
+             deploy/smoke.sh deploy/smoke.txt deploy/container-test.sh scripts/komplexitaet-pruefen.sh scripts/konfig-pruefen.sh scripts/lizenzen-pruefen.sh \
              .vscode/settings.json .vscode/extensions.json .vscode/tasks.json \
              scripts/release-notes.sh \
              .github/workflows/tests.yml .github/workflows/release.yml \
@@ -627,6 +658,14 @@ probe_vscode "$pdir"
     && ok "deploy/smoke.sh --dry-run listet die Routen" || nichtok "deploy/smoke.sh --dry-run listet die Routen"
 [ "$(git -C "$pdir" ls-files -s deploy/smoke.sh | cut -c1-6)" = "100755" ] \
     && ok "Ausführbar-Bit im Index: deploy/smoke.sh" || nichtok "Ausführbar-Bit im Index: deploy/smoke.sh"
+[ "$(git -C "$pdir" ls-files -s deploy/container-test.sh | cut -c1-6)" = "100755" ] \
+    && ok "Ausführbar-Bit im Index: deploy/container-test.sh" || nichtok "Ausführbar-Bit im Index: deploy/container-test.sh"
+{ grep -q '^RUN setcap -r ' "$pdir/Dockerfile" || ! grep -q 'frankenphp\|FROM caddy' "$pdir/Dockerfile"; } \
+    && ok "Dockerfile: File-Capability des Servers entfernt (sonst kein Start mit cap_drop: ALL)" \
+    || nichtok "Dockerfile: File-Capability des Servers entfernt (sonst kein Start mit cap_drop: ALL)"
+{ ! grep -q -- '--chown=' "$pdir/Dockerfile" && ! grep -qE 'chown .*(/app|/srv)( |$)' "$pdir/Dockerfile"; } \
+    && ok "Dockerfile: der Code gehört root (kein chown auf /app oder /srv)" \
+    || nichtok "Dockerfile: der Code gehört root (kein chown auf /app oder /srv)"
 
 # Verbund gegen docker compose prüfen, wo es das gibt (CI-Läufer): gültig mit gesetzten
 # Pflichtvariablen, verweigert, wenn DB_PASSWORD in der .env leer bleibt (`:?`). Die .env dafür
@@ -695,6 +734,41 @@ grep -q '^APP_DOMAIN=' "$pdir/.env.example" \
 
 hook_stacks "$pdir" | grep -q 'Stack erkannt: wordpress' \
     && ok "Hook erkennt den Stack wordpress" || nichtok "Hook erkennt den Stack wordpress"
+
+# ------------------------------------------------- Laravel-Vorlage: Härtung startet
+# Laravel hat keine Probe (laravel new braucht Minuten); den Start belegt vorlagen-container.yml.
+# Hier die vier Stellen aus Issue #85 (Pilot, 2026-09-29), damit ein Rückfall schon im Pflicht-
+# Check auffällt.
+echo
+echo "== Laravel-Vorlage: gehärteter Verbund (Issue #85)"
+lv="$(dirname "${BASH_SOURCE[0]}")/../templates/laravel/dateien"
+grep -q '^mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views$' "$lv/docker/entrypoint.sh" \
+    && [ "$(grep -n '^mkdir -p storage/framework' "$lv/docker/entrypoint.sh" | cut -d: -f1)" -lt "$(grep -n '^[[:space:]]*wait_for_database$' "$lv/docker/entrypoint.sh" | head -1 | cut -d: -f1)" ] \
+    && ok "entrypoint.sh legt die Laufzeitordner im tmpfs vor dem ersten artisan-Aufruf an" \
+    || nichtok "entrypoint.sh legt die Laufzeitordner im tmpfs vor dem ersten artisan-Aufruf an"
+grep -q 'printf .%s\\n. "$ausgabe"' "$lv/docker/entrypoint.sh" \
+    && ok "entrypoint.sh zeigt beim Abbruch die Ausgabe von artisan" \
+    || nichtok "entrypoint.sh zeigt beim Abbruch die Ausgabe von artisan"
+grep -q '^RUN setcap -r /usr/local/bin/frankenphp$' "$lv/Dockerfile" \
+    && ok "Dockerfile entfernt die File-Capability von frankenphp" \
+    || nichtok "Dockerfile entfernt die File-Capability von frankenphp"
+[ "$(grep -c '^USER www-data$' "$lv/Dockerfile")" -eq 1 ] && ! grep -q -- '--chown=www-data' "$lv/Dockerfile" \
+    && ok "Dockerfile: Prozess als www-data, Code gehört root" \
+    || nichtok "Dockerfile: Prozess als www-data, Code gehört root"
+! grep -q '{' <(grep '^RUN mkdir' "$lv/Dockerfile") \
+    && ok "Dockerfile: keine Klammer-Erweiterung unter /bin/sh" \
+    || nichtok "Dockerfile: keine Klammer-Erweiterung unter /bin/sh"
+[ "$(sed -n '/^x-app-tmpfs:/,/^$/p' "$lv/compose.yaml" | grep -c '^    - /')" -eq "$(sed -n '/^x-app-tmpfs:/,/^$/p' "$lv/compose.yaml" | grep -c ':uid=33,gid=33$')" ] \
+    && ok "compose.yaml: jedes tmpfs der Anwendung gehört www-data (uid/gid 33)" \
+    || nichtok "compose.yaml: jedes tmpfs der Anwendung gehört www-data (uid/gid 33)"
+grep -q "INERTIA_DEVTOOLS_ENABLED: 'false'" "$lv/compose.dev.yaml" \
+    && ok "compose.dev.yaml: Inertia-DevTools aus (schreiben sonst ins read_only-Dateisystem)" \
+    || nichtok "compose.dev.yaml: Inertia-DevTools aus (schreiben sonst ins read_only-Dateisystem)"
+cmp -s "$lv/deploy/container-test.sh" "$(dirname "${BASH_SOURCE[0]}")/../templates/fastapi/dateien/deploy/container-test.sh" \
+    && cmp -s "$lv/deploy/container-test.sh" "$(dirname "${BASH_SOURCE[0]}")/../templates/astro/dateien/deploy/container-test.sh" \
+    && cmp -s "$lv/deploy/container-test.sh" "$(dirname "${BASH_SOURCE[0]}")/../templates/wordpress/dateien/deploy/container-test.sh" \
+    && ok "container-test.sh ist in allen vier Web-Vorlagen gleich" \
+    || nichtok "container-test.sh ist in allen vier Web-Vorlagen gleich"
 
 echo
 if [ "$fehler" -eq 0 ]; then

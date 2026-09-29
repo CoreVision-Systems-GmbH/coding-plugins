@@ -43,13 +43,15 @@ x-haertung: &haertung
 # Bau werden hier verdeckt und beim ersten Boot neu geschrieben — gewollt).
 # storage/logs bleibt leer — Logs gehen über LOG_CHANNEL=stderr in das
 # Docker-Protokoll. Dateien der Anwendung liegen im Volume app_storage.
+# Die Dienste laufen als www-data (uid/gid 33, Dockerfile `USER`); ohne uid/gid
+# gehörte jedes tmpfs root, und www-data könnte nicht hineinschreiben.
 x-app-tmpfs: &app_tmpfs
-    - /tmp
-    - /data
-    - /config
-    - /app/storage/framework
-    - /app/storage/logs
-    - /app/bootstrap/cache
+    - /tmp:uid=33,gid=33
+    - /data:uid=33,gid=33
+    - /config:uid=33,gid=33
+    - /app/storage/framework:uid=33,gid=33
+    - /app/storage/logs:uid=33,gid=33
+    - /app/bootstrap/cache:uid=33,gid=33
 
 services:
     app:

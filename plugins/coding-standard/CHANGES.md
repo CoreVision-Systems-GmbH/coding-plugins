@@ -7,6 +7,39 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.6.0] — 2026-09-29
+
+### Hinzugefügt
+
+- **Probelauf des gehärteten Verbunds:** `deploy/container-test.sh` in den Web-Vorlagen (Laravel,
+  WordPress, Astro, FastAPI) baut das Abbild und startet den Verbund so gehärtet wie auf dem
+  Server — einmal wie Prod, einmal wie die Dev-Instanz — und prüft: alle Dienste gesund, keiner
+  neu gestartet, jeder Container aus dem eigenen Abbild kann in seine Volumes und tmpfs
+  schreiben. Neue Projekte führen
+  ihn im Pflicht-Check `ci` aus; das verlängert die CI um einige Minuten (Laravel am meisten).
+  Im Standard-Repo legt `vorlagen-container.yml` je Web-Stack ein Projekt an und startet es.
+
+### Behoben
+
+- **Gehärtete Container starten** (Issue #85, gefunden beim ersten Start des Pilots):
+  - Laravel: Die Laufzeitordner im leeren tmpfs entstehen vor dem ersten `artisan`-Aufruf (sonst
+    Neustartschleife); `frankenphp` ohne File-Capability (startete mit `cap_drop: ALL` nicht); der
+    Prozess läuft als `www-data`, die tmpfs gehören uid/gid 33 (sonst konnte die App nicht in
+    `storage/app` schreiben); auf der Dev-Instanz sind die Inertia-DevTools aus (jede Seite endete
+    mit 500); `wait_for_database` zeigt beim Abbruch die Ausgabe von `artisan` statt nur
+    „Datenbank nicht erreichbar“.
+  - WordPress und Astro: `frankenphp` bzw. `caddy` ohne File-Capability — beide starteten
+    gehärtet nicht (auf dem Dev-Server belegt).
+  - Bestehende Projekte übernehmen die Stellen von Hand: Laravel die vier aus Issue #85;
+    WordPress `RUN setcap -r /usr/local/bin/frankenphp` und Astro `RUN setcap -r /usr/bin/caddy`,
+    jeweils vor `USER` im Dockerfile.
+
+### Geändert
+
+- Der Code im Abbild gehört root (Laravel, WordPress, Astro, FastAPI); der Laufzeitnutzer liest
+  ihn und schreibt nur in seine Volumes und tmpfs — so schützt nicht allein `read_only` vor einer
+  Hintertür im Code.
+
 ## [1.5.0] — 2026-09-29
 
 ### Hinzugefügt

@@ -14,6 +14,11 @@ services:
         environment:
             APP_ENV: local
             APP_DEBUG: 'true'
+            # Bei APP_ENV=local zeichnen die Inertia-DevTools jede Anfrage nach
+            # storage/inertia-devtools auf — das Wurzeldateisystem ist schreibgeschützt,
+            # jede Seite endete mit 500 (Dev-Server, 2026-09-29). Mit DevTools wird lokal
+            # gearbeitet (composer dev); die geteilte Dev-Instanz braucht keine Mitschrift.
+            INERTIA_DEVTOOLS_ENABLED: 'false'
             # Mail landet in Mailpit (Dienst `mail`), nie bei echten Empfängern.
             MAIL_MAILER: smtp
             MAIL_SCHEME: smtp

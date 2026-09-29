@@ -45,10 +45,17 @@ COPY --from=builder /build/dist /srv
 # dem Server.
 RUN caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
+# Das Basisabbild gibt caddy die File-Capability cap_net_bind_service (für :80/:443).
+# compose.yaml verwirft mit cap_drop: ALL alle Capabilities, und der Kernel verweigert
+# dann den Start der Datei („operation not permitted“, auch als web). Port 8080 braucht
+# die Capability nicht. Belegt auf dem Dev-Server am 2026-09-29.
+RUN setcap -r /usr/bin/caddy
+
 # Kein Root: Der Webserver liest nur /srv und schreibt in seine eigenen
-# Verzeichnisse (/config, /data). Port 8080 braucht keine Rechte.
+# Verzeichnisse (/config, /data). Port 8080 braucht keine Rechte. Die Site gehört
+# root — web darf sie lesen, nicht ändern.
 RUN adduser -D -u 10001 web \
-    && chown -R web:web /srv /config /data
+    && chown -R web:web /config /data
 USER web
 
 EXPOSE 8080

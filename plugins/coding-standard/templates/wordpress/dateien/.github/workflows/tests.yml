@@ -112,3 +112,13 @@ jobs:
 
       - name: Sicherheitshinweise der Abhängigkeiten
         run: composer audit
+
+      # Probelauf des gehärteten Verbunds (deploy/container-test.sh): baut das Abbild und startet
+      # es so gehärtet wie auf dem Server — gesund, stabil, schreibbar. Bis 1.5.0 wurde die
+      # Härtung nur gelesen; im Pilot scheiterte der erste Start an Fehlern, die kein Test sah
+      # (2026-09-29). In einem sauberen Arbeitsbaum des geprüften Stands, weil die Schritte oben
+      # eine .env und Abhängigkeiten anlegen.
+      - name: Gehärteter Verbund startet (Probelauf)
+        run: |
+          git worktree add --quiet --detach "$RUNNER_TEMP/probelauf" HEAD
+          bash "$RUNNER_TEMP/probelauf/deploy/container-test.sh"

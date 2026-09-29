@@ -9,6 +9,7 @@
 | Sicherheitshinweise              | `npm audit --omit=dev --audit-level=high`                     |
 | Abbild lokal bauen               | `APP_VERSION=local docker compose -f compose.yaml -f compose.build.yaml build` |
 | Dev-Instanz (Dev-Server)         | `deploy/dev.sh up` → `https://dev.<APP_DOMAIN>`               |
+| Gehärteter Verbund startet (CI)  | `bash deploy/container-test.sh`                               |
 
 Die Tests prüfen das Ergebnis des Baus — `npm test` setzt `npm run build` voraus; `npm run
 check` macht beides in der richtigen Reihenfolge, die CI führt dieselben Schritte aus. Die Site

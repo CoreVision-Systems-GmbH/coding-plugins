@@ -55,7 +55,9 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint
 
 WORKDIR /app
-COPY --from=builder --chown=www-data:www-data /app /app
+# Der Code gehört root: Der Prozess läuft als www-data (unten) und darf nur die Uploads
+# schreiben — so schützt nicht allein read_only vor einer Hintertür in web/ oder vendor/.
+COPY --from=builder /app /app
 
 # Uploads sind das Einzige, was WordPress schreibt (Volume in compose.yaml). Caddy
 # braucht /data und /config für seinen Zustand.
@@ -64,6 +66,12 @@ RUN mkdir -p web/app/uploads \
 
 ENV SERVER_NAME=:8080 \
     WP_CLI_CACHE_DIR=/tmp/wp-cli-cache
+
+# Das Basisabbild gibt frankenphp die File-Capability cap_net_bind_service (für :80/:443).
+# compose.yaml verwirft mit cap_drop: ALL alle Capabilities, und der Kernel verweigert
+# dann den Start der Datei („operation not permitted“, auch als www-data). Die App hört
+# auf 8080 und braucht die Capability nicht. Belegt auf dem Dev-Server am 2026-09-29.
+RUN setcap -r /usr/local/bin/frankenphp
 
 USER www-data
 
