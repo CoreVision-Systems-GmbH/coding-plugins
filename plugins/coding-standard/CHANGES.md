@@ -7,6 +7,43 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.7.0] — 2026-09-29
+
+### Hinzugefügt
+
+- **Geoblocking auf jedem Linux-Server** (neue Regel im Kern, ADR 0008): Server mit Anwendungen
+  der CoreVision sind von außen nur aus AT, CH, LI und DE erreichbar — von jeder anderen Adresse
+  kein Dienst, kein Protokoll, kein Port, auch keiner, den Docker veröffentlicht. Frei bleiben das
+  Tailnet und Antworten auf Verbindungen, die der Server selbst aufbaut; Zertifikate kommen
+  deshalb nur über DNS-01.
+  - Neuer Befehl `geoblock` im Server-Baustein: `setup-server.sh` richtet ihn auf Dev und Prod ein,
+    `--check` ist ohne geladene Sperre rot. Auf anderen Linux-Servern:
+    `geoblock einrichten` (EINRICHTUNG.md, C.4).
+  - Die Länderliste (db-ip, CC BY 4.0) wird jeden Montag erneuert.
+  - Eine unvollständige, fehlerhafte oder unplausible Liste wird nicht geladen, die alte gilt weiter.
+  - Fehlt beim Start jede Liste, ist alles Öffentliche gesperrt und das Tailnet offen.
+  - Ein Wächter lädt die Sperre alle 5 Minuten nach, falls ein `flush ruleset` sie gelöscht hat.
+  - Auf Prod startet der Edge erst, wenn die Sperre steht.
+  - Tunnel nach außen (Tailscale Funnel, cloudflared) umgehen die Sperre und brauchen ebenfalls
+    eine ADR.
+  - Ausnahmen je Server, jede mit ADR im Projekt: weitere Länder (`--laender`), Netze und Dienste
+    mit offizieller Adressliste (`geoblock erlauben dienst:googlebot --grund …`). Öffentliche
+    Websites brauchen eine Ausnahme für Suchmaschinen, sonst fallen sie aus dem Index.
+  - Kommt die eigene SSH-Sitzung aus einer Adresse, die danach gesperrt wäre, rollt `geoblock`
+    zurück und bricht ab.
+  - Bestehende Server bekommen es mit dem nächsten Lauf von `setup-server.sh` (EINRICHTUNG.md,
+    B.6) — vorher prüfen, ob Webhooks, Monitoring oder Suchmaschinen aus dem Ausland ankommen
+    müssen.
+
+### Behoben
+
+- `setup-server.sh` brach ab, wenn `sudo` die Variable `SSH_CONNECTION` entfernt. Jetzt erkennt
+  es die Gegenstelle über `who -m` und schließt öffentliches SSH, sobald die Sitzung über das
+  Tailnet läuft.
+- `setup-server.sh` ließ einen Klon durch, den Gruppe oder andere beschreiben dürfen (Modi 722,
+  733), und prüfte nur dessen Ordner. Weil daraus Code als root läuft, prüft es jetzt `edge-site`,
+  `rollout` und jeden Ordner bis `/`.
+
 ## [1.6.0] — 2026-09-29
 
 ### Hinzugefügt

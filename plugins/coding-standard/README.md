@@ -268,11 +268,13 @@ plugins/coding-standard/
   skills/deploy-check/SKILL.md
   skills/rollout/SKILL.md         Release auf den Prod-Server — sofort oder zum Termin
   skills/pr/SKILL.md
-  server/setup-server.sh          Dev- oder Prod-Server: Docker, Tailscale, ufw, Edge-Caddy
+  server/setup-server.sh          Dev- oder Prod-Server: Docker, Tailscale, ufw, Geoblocking, Edge-Caddy
+  server/geoblock                 Geoblocking: nur AT, CH, LI, DE und Ausnahmen (nftables)
   server/edge-site                Anwendung an den Edge anschließen (DNS, Zertifikat)
   server/rollout                  Release einspielen, sofort oder zum Termin
   server/edge/                    Dockerfile (Caddy + DNS-Module) und compose.yaml des Edge
   server/test-server.sh
+  server/test-geoblock-netz.sh    Geoblocking gegen den echten Kernel (root, nur CI)
   scripts/projekt-neu.sh          Bootstrap eines neuen Projekts
   scripts/test-projekt-neu.sh
   scripts/projekt-aufnehmen.sh    Bestandsaufnahme und Aufnahme eines bestehenden Projekts

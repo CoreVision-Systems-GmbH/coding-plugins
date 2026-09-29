@@ -25,25 +25,31 @@
 #                           Dienst https://auth.acme-dns.io — laut Projekt nur zum Testen
 #   --ip <adresse>          Ziel der A-Records. Vorgabe: dev die Tailscale-IPv4, prod die IPv4
 #                           der Standardroute
+#   --laender AT,CH,LI,DE   Länder, die den Server von außen erreichen (Vorgabe; jede Abweichung
+#                           braucht eine ADR im Projekt). Ohne Angabe gilt, was gespeichert ist
 #   --check                 installiert nichts, prüft nur; Exit 0 heißt: Server ist fertig
 #   --dry-run               zeigt, was zu tun wäre, ändert nichts
 #
 # Was es tut — jeder Schritt wird übersprungen, wenn er schon erledigt ist:
-#   Pakete (curl, git, jq, ufw, unattended-upgrades), Docker mit Compose aus dem offiziellen
-#   apt-Repo, Tailscale aus dem offiziellen apt-Repo, Firewall (ufw), /etc/corevision/server.env,
-#   /opt/edge mit Edge-Caddy (gebaut aus server/edge/Dockerfile), Netz `edge`, die Befehle
-#   edge-site und rollout unter /usr/local/bin, sudo-Regel für die Gruppe docker.
+#   Pakete (curl, git, jq, nftables, ufw, unattended-upgrades), Docker mit Compose aus dem
+#   offiziellen apt-Repo, Tailscale aus dem offiziellen apt-Repo, Firewall (ufw), Geoblocking
+#   (server/geoblock: nur AT, CH, LI, DE und Ausnahmen, auch für die Ports des Edge),
+#   /etc/corevision/server.env, /opt/edge mit Edge-Caddy (gebaut aus server/edge/Dockerfile),
+#   Netz `edge`, die Befehle edge-site, rollout und geoblock unter /usr/local/bin, sudo-Regel für
+#   die Gruppe docker.
 #
 # Was es NICHT tut: `tailscale up` (Anmeldung im Browser mit dem GitHub-Konto des Servers — eigenes
 # Tailnet je Server, Zugriff über Sharing, EINRICHTUNG.md B.2), Benutzer anlegen, Anwendungen
 # einrichten (dafür deploy/install.sh bzw. deploy/dev.sh der Anwendung), etwas löschen.
-# Rückweg: docker compose -f /opt/edge/compose.yaml down; ufw disable; Pakete mit apt remove.
+# Rückweg: docker compose -f /opt/edge/compose.yaml down; ufw disable; Pakete mit apt remove;
+#          Geoblocking: siehe geoblock --help.
 
 # Ganzer Rest in einem Block: bash liest ihn vollständig, bevor es ihn ausführt.
 {
 set -euo pipefail
 
-HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# -P: der aufgelöste Pfad — die Rechteprüfung unten läuft seine Ordner bis / ab, ohne Symlink dazwischen.
+HIER="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 W="${SERVER_WURZEL:-}"     # nur Tests setzen das: Wurzel eines Wegwerf-Dateisystems
 KONF_DIR="$W/etc/corevision"
 KONF="$KONF_DIR/server.env"
@@ -52,10 +58,11 @@ BIN="$W/usr/local/bin"
 
 hilfe() { sed -n '2,/^# Ganzer Rest/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
-rolle=""; dns=""; email=""; acmedns_url=""; ziel_ip=""; ip_gegeben=0; trocken=0; nur_pruefen=0
+rolle=""; dns=""; email=""; acmedns_url=""; ziel_ip=""; ip_gegeben=0; laender=""; trocken=0; nur_pruefen=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --rolle)       rolle="${2:-}"; shift ;;
+        --laender)     laender="${2:-}"; [ -n "$laender" ] || { printf -- '--laender braucht eine Liste, z. B. AT,CH,LI,DE (siehe --help)\n' >&2; exit 1; }; shift ;;
         --dns)         dns="${2:-}"; shift ;;
         --email)       email="${2:-}"; shift ;;
         --acmedns-url) acmedns_url="${2:-}"; shift ;;
@@ -145,7 +152,7 @@ esac
 if [ $nur_pruefen -eq 0 ]; then
     # ------------------------------------------------------------ Pakete
     schritt "Grundpakete"
-    for p in ca-certificates curl git jq ufw unattended-upgrades; do
+    for p in ca-certificates curl git jq nftables ufw unattended-upgrades; do
         if paket_da "$p"; then ok "$p"; else apt_rein "$p"; fi
     done
 
@@ -210,7 +217,8 @@ if [ $nur_pruefen -eq 0 ]; then
     # Hosts; den Edge schützt auf Dev die Bindung an die Tailscale-IP.
     schritt "Firewall (ufw)"
     # sudo entfernt SSH_CONNECTION aus der Umgebung; `who -m` kennt die Gegenstelle des Terminals.
-    gegenstelle="${SSH_CONNECTION%% *}"
+    # :- statt der nackten Variable: Unter set -u brach das Skript hier sonst ab (Review 2026-09-29).
+    gegenstelle="${SSH_CONNECTION:-}"; gegenstelle="${gegenstelle%% *}"
     [ -n "$gegenstelle" ] || gegenstelle="$(who -m 2>/dev/null | sed -n 's/.*(\([0-9.]*\)).*/\1/p' | head -1 || true)"
     ssh_ueber_tailnet=0
     # Tailscale vergibt Adressen aus 100.64.0.0/10 (100.64. bis 100.127.).
@@ -235,6 +243,15 @@ if [ $nur_pruefen -eq 0 ]; then
     if ufw status 2>/dev/null | grep -q "Status: active"; then ok "ufw aktiv"
     elif [ $trocken -eq 1 ]; then tun "würde einschalten: ufw enable"
     else ufw --force enable >/dev/null; tun "ufw eingeschaltet"; fi
+
+    # ------------------------------------------------------------ Geoblocking
+    # Vor dem Edge: Docker öffnet 80/443 an ufw vorbei, die Sperre greift davor (ADR 0008 des
+    # Standards). "$BASH" statt bash: Das Skript läuft auch dort, wo bash nicht im PATH liegt.
+    gb=(einrichten)
+    if [ -n "$laender" ]; then gb+=(--laender "$laender"); fi
+    if [ $trocken -eq 1 ]; then gb+=(--dry-run); fi
+    geoblock_steht=1
+    if ! "$BASH" "$HIER/geoblock" "${gb[@]}"; then befund "Geoblocking nicht eingerichtet — siehe oben"; geoblock_steht=0; fi
 
     # ------------------------------------------------------------ Konfiguration
     schritt "Server-Konfiguration"
@@ -291,6 +308,9 @@ if [ $nur_pruefen -eq 0 ]; then
 
     if [ "$rolle" = dev ] && [ -z "$bind_ip" ]; then
         warnung "Edge wartet auf Tailscale: Auf Dev bindet er nur an die Tailscale-IP (siehe Prüfung)"
+    elif [ "$rolle" = prod ] && [ $geoblock_steht -eq 0 ] && ! docker compose -f "$EDGE/compose.yaml" ps --status running -q caddy 2>/dev/null | grep -q .; then
+        # Auf Prod geht der Edge an 0.0.0.0:80/443 — ohne Sperre wäre er weltweit offen.
+        warnung "Edge startet auf Prod erst, wenn das Geoblocking steht (Skript danach erneut starten)"
     elif [ $trocken -eq 1 ]; then
         tun "würde bauen und starten: docker compose -f $EDGE/compose.yaml up -d --build"
     elif [ $neu_bauen -eq 1 ] || ! docker compose -f "$EDGE/compose.yaml" ps --status running -q caddy 2>/dev/null | grep -q .; then
@@ -305,14 +325,24 @@ if [ $nur_pruefen -eq 0 ]; then
 
     # ------------------------------------------------------------ Befehle
     schritt "Befehle edge-site und rollout"
-    # Der Starter führt Code aus $HIER als root aus (sudo edge-site): Das Verzeichnis muss root
-    # gehören und darf für niemanden sonst beschreibbar sein.
-    if [ -z "$W" ]; then
-        recht="$(stat -c '%U %a' "$HIER" 2>/dev/null || echo '? 777')"
-        case "$recht" in
-            "root "[0-7][0-5][0-5]) ;;
-            *) printf 'FEHLER  %s gehört nicht root oder ist für andere beschreibbar (%s) — als root klonen.\n' "$HIER" "$recht" >&2; exit 1 ;;
-        esac
+    # Der Starter führt Code aus $HIER als root aus (sudo edge-site): Die Befehle und jeder Ordner
+    # bis / müssen root gehören und dürfen für Gruppe und andere nicht beschreibbar sein — Ziffern
+    # 0, 1, 4, 5, ohne das Schreibbit 2. Bis 1.7.0 ließ das Muster [0-5] die Modi 722 und 733 durch
+    # und prüfte nur den Ordner selbst (Review 2026-09-29). Ohne -L: Der Pfad ist schon aufgelöst
+    # (HIER oben); ein Symlink unterwegs meldet 777 und bricht sicher ab, statt die Ordner über
+    # seinem Ziel zu überspringen. SERVER_RECHTE_PRUEFEN: nur für Tests.
+    if [ -z "$W" ] || [ -n "${SERVER_RECHTE_PRUEFEN:-}" ]; then
+        for e in "$HIER/edge-site" "$HIER/rollout"; do
+            while :; do
+                recht="$(stat -c '%U %a' "$e" 2>/dev/null || echo '? 777')"
+                case "$recht" in
+                    "root "[0-7][0145][0145]|"root "[0-7][0-7][0145][0145]) ;;
+                    *) printf 'FEHLER  %s gehört nicht root oder ist für andere beschreibbar (%s) — als root klonen.\n' "$e" "$recht" >&2; exit 1 ;;
+                esac
+                [ "$e" = / ] && break
+                e="$(dirname "$e")"
+            done
+        done
     fi
     # Starter statt Kopie: Die Befehle bleiben im geklonten Standard und kommen mit
     # `git pull` in neuer Fassung, ohne dass dieses Skript erneut laufen muss.
@@ -342,6 +372,12 @@ else
     [ "$rolle" = dev ] && wartet_auf_tailscale=1
 fi
 if ufw status 2>/dev/null | grep -q "Status: active"; then ok "ufw aktiv"; else fehlt "ufw aktiv"; fi
+if gb_pruefung="$("$BASH" "$HIER/geoblock" check 2>&1)"; then
+    ok "Geoblocking aktiv: $(printf '%s\n' "$gb_pruefung" | sed -n 's/^   ok      \([0-9]* IPv4-.*\)/\1/p' | head -1)"
+else
+    [ $trocken -eq 1 ] || printf '%s\n' "$gb_pruefung" | sed -n 's/^   FEHLT   /           /p'
+    fehlt "Geoblocking aktiv (sudo geoblock check)"
+fi
 if [ -f "$KONF" ]; then ok "$KONF (Rolle $rolle, DNS $dns, Ziel-IP ${ziel_ip:-?})"; else fehlt "$KONF"; fi
 if [ -z "$ziel_ip" ] && [ $wartet_auf_tailscale -eq 0 ]; then handgriff "Ziel-IP für A-Records unbekannt — mit --ip <adresse> angeben"; fi
 if [ "$dns" != acmedns ] && ! grep -qE '^DNS_API_TOKEN=.+' "$EDGE/.env" 2>/dev/null; then

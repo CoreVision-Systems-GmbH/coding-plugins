@@ -19,7 +19,8 @@ Beide Server sind gleich gebaut: Docker mit Compose und **genau ein Edge-Caddy**
 HTTP-/HTTPS-Anfragen annimmt und nach Hostname an die Anwendungen weiterreicht. Zertifikate
 kommen von Let's Encrypt über **ACME DNS-01** — dafür muss ein Server nicht aus dem Internet
 erreichbar sein. Der Unterschied: Der Dev-Server ist nur im Tailnet erreichbar und hängt vor
-jede Adresse `dev.`; der Prod-Server ist öffentlich und bekommt Fassungen nur auf Auftrag.
+jede Adresse `dev.`; der Prod-Server ist öffentlich und bekommt Fassungen nur auf Auftrag. Beide
+haben **Geoblocking**: Von außen erreichen sie nur Adressen aus AT, CH, LI und DE (C.4).
 
 | Teil | Für wen | Ergebnis |
 |---|---|---|
@@ -622,7 +623,7 @@ sudo /opt/corevision/standard/plugins/coding-standard/server/setup-server.sh \
 `--dns` ist `hetzner`, `cloudflare` oder `acmedns` (Teil D). Den API-Token fragt das Skript
 verdeckt ab — nie als Argument. Was es tut, jeweils nur, wenn es noch fehlt:
 
-1. Grundpakete: `curl git jq ufw unattended-upgrades`.
+1. Grundpakete: `curl git jq nftables ufw unattended-upgrades`.
 2. **Docker mit Compose** aus dem offiziellen apt-Repo ([Anleitung](https://docs.docker.com/engine/install/ubuntu/)),
    nicht über `get.docker.com`.
 3. **Tailscale** aus dem offiziellen apt-Repo ([Anleitung](https://tailscale.com/kb/1031/install-linux)).
@@ -630,13 +631,16 @@ verdeckt ab — nie als Argument. Was es tut, jeweils nur, wenn es noch fehlt:
    dann startet, wenn Tailscale später hochkommt.
 5. **Firewall (ufw):** alles zu, außer über `tailscale0`. SSH bleibt öffentlich offen, bis du über
    das Tailnet verbunden bist — dann schließt ein erneuter Lauf es (kein Aussperren).
-6. `/etc/corevision/server.env` (Rolle, DNS-Weg, Kontakt, Ziel-IP) und **`/opt/edge/`** mit dem
+6. **Geoblocking** (C.4): Von außen erreichen den Server nur Adressen aus **AT, CH, LI und DE** —
+   jeder Port, jedes Protokoll, auch die Ports des Edge, die Docker an ufw vorbei öffnet. Das
+   Tailnet bleibt frei. Weitere Länder mit `--laender AT,CH,LI,DE,IT` (braucht eine ADR im Projekt).
+7. `/etc/corevision/server.env` (Rolle, DNS-Weg, Kontakt, Ziel-IP) und **`/opt/edge/`** mit dem
    Edge-Caddy: gebaut aus `server/edge/Dockerfile` (Caddy mit den DNS-Modulen, gepinnt), gestartet
    im Netz `edge`, **gebunden nur an die Tailscale-IP** — Docker umgeht ufw für veröffentlichte
    Ports, deshalb schützt allein die Bindung.
-7. Befehle `edge-site` und `rollout` unter `/usr/local/bin`; sudo-Regel, damit Mitglieder der
-   Gruppe `docker` `edge-site` ohne Passwort aufrufen dürfen.
-8. Prüfung — wie `--check`.
+8. Befehle `edge-site`, `rollout` und `geoblock` unter `/usr/local/bin`; sudo-Regel, damit
+   Mitglieder der Gruppe `docker` `edge-site` ohne Passwort aufrufen dürfen.
+9. Prüfung — wie `--check`.
 
 **Handgriff:** `sudo tailscale up` (Link im Browser öffnen) und **mit dem GitHub-Konto dieses
 Servers** anmelden — so entsteht sein eigenes Tailnet mit ihm als einzigem Host. Teile ihn
@@ -721,7 +725,8 @@ sudo /opt/corevision/standard/plugins/coding-standard/server/setup-server.sh \
 
 Unterschiede zu B.2: ufw öffnet 80/443 öffentlich; der Edge bindet an alle Adressen; die
 A-Records zeigen auf die öffentliche IPv4 (Standardroute, sonst `--ip <adresse>`). SSH nur über
-Tailscale, wie auf Dev. Kontrolle mit `--check`.
+Tailscale, wie auf Dev. Geoblocking wie auf Dev: 80/443 erreichen nur Adressen aus AT, CH, LI und
+DE — öffentliche Websites brauchen für Suchmaschinen eine Ausnahme (C.4). Kontrolle mit `--check`.
 
 ## C.2 GitHub-Zugang für Rollouts
 
@@ -755,6 +760,56 @@ cd /opt/apps/<app> && sudo deploy/install.sh
 Anwendung mit `edge-site` unter `APP_DOMAIN` an. Kontrolle: `sudo edge-site check <APP_DOMAIN>`.
 Jede weitere Fassung kommt danach nur noch über `rollout` (Teil E).
 
+## C.4 Geoblocking: Länder, Netze, Dienste
+
+Gilt auf Dev- und Prod-Servern und auf jedem anderen Linux-Server mit Anwendungen der CoreVision.
+Von außen erreichbar ist der Server nur aus **AT, CH, LI und DE** — von jeder anderen Adresse kein
+Dienst, kein Protokoll, kein Port. Frei bleiben das Tailnet und Antworten auf Verbindungen, die der
+Server selbst aufbaut (Updates, GitHub, Let's Encrypt über DNS-01). Wer im Ausland arbeitet, kommt
+über das Tailnet.
+
+```bash
+sudo geoblock liste      # Länder, Zahl der Bereiche, Ausnahmen mit Grund
+sudo geoblock check      # Exit 0: geladen, eingeschaltet, Liste aktuell
+```
+
+**Ausnahmen** — jede braucht eine ADR im Projekt der Anwendung; der Grund steht beim Eintrag:
+
+```bash
+sudo geoblock erlauben dienst:googlebot --grund "ADR 0005 website: Suchmaschinen-Index"
+sudo geoblock erlauben 198.51.100.0/24 --grund "ADR 0006 shop: Webhooks des Zahlungsanbieters"
+sudo geoblock entfernen 198.51.100.0/24
+sudo geoblock einrichten --laender AT,CH,LI,DE,IT   # weiteres Land
+```
+
+Dienste mit offizieller Adressliste, die jede Woche neu geholt wird: `googlebot`, `bingbot`,
+`stripe-webhooks`, `github-webhooks`, `uptimerobot`. Netze: IPv4 ab /8, IPv6 ab /16 — ganze
+Länder über `--laender`.
+
+**Andere Linux-Server** (nicht mit `setup-server.sh` gebaut, mit nftables und systemd):
+
+```bash
+sudo git clone https://github.com/CoreVision-Systems-GmbH/coding-plugins /opt/corevision/standard
+sudo apt-get install -y nftables jq
+sudo /opt/corevision/standard/plugins/coding-standard/server/geoblock einrichten
+```
+
+**Aussperrschutz:** Käme deine SSH-Sitzung danach nicht mehr durch, rollt `geoblock` zurück und
+bricht ab. Über das Tailnet verbinden oder die Adresse erlauben; `--force` übergeht es bewusst.
+
+**Grenzen:**
+- Tunnel nach außen (Tailscale Funnel, cloudflared) umgehen die Sperre. Sie brauchen wie jede
+  Ausnahme eine ADR.
+- Nach `entfernen` laufen bestehende Verbindungen bis zu ihrem Ende weiter.
+- Ein Wächter prüft alle 5 Minuten, ob die Tabelle noch da ist (`corevision-geoblock-waechter.timer`).
+  Ein `flush ruleset` löscht sie still, der Wächter lädt sie nach. `nftables.service` bleibt aus.
+
+**Liste:** db-ip „IP to Country Lite“ (IP Geolocation by [DB-IP](https://db-ip.com), CC BY 4.0),
+jeden Montag erneuert (`corevision-geoblock-aktualisieren.timer`). Eine unvollständige Liste wird
+nicht geladen, die alte bleibt; `geoblock check` meldet eine Liste, die älter als 45 Tage ist.
+Fehlt beim Start jede Liste, ist alles Öffentliche gesperrt und das Tailnet offen — beheben mit
+`sudo geoblock aktualisieren`.
+
 ---
 
 # Teil D — DNS und Zertifikate
@@ -762,7 +817,8 @@ Jede weitere Fassung kommt danach nur noch über `rollout` (Teil E).
 Zertifikate holt der Edge-Caddy über **ACME DNS-01**: Let's Encrypt prüft einen TXT-Eintrag unter
 `_acme-challenge.<host>`, den Caddy selbst setzt. Der Server muss dafür nicht erreichbar sein —
 deshalb bekommt auch der Dev-Server im Tailnet echte Zertifikate. Caddy erneuert sie rund 30 Tage
-vor Ablauf allein. Drei Wege:
+vor Ablauf allein. HTTP-01 geht nicht: Let's Encrypt prüft dabei von wechselnden Standorten
+weltweit, das Geoblocking (C.4) ließe die Prüfung nicht durch. Drei Wege:
 
 ## D.1 Hetzner (DNS in der Hetzner Console)
 
@@ -866,6 +922,10 @@ Rollout mit Migration oder neuen ENV-Schlüsseln: `/deploy-check`.
 docker compose -f /opt/edge/compose.yaml down        # Edge anhalten
 sudo ufw disable                                     # Firewall aus
 sudo rollout liste; sudo rollout absagen <id>        # offene Termine entfernen
+# Geoblocking aus — nur zur Fehlersuche, ohne ist der Server nicht im Standard:
+sudo systemctl disable --now corevision-geoblock.service corevision-geoblock-aktualisieren.timer \
+     corevision-geoblock-waechter.timer
+sudo nft delete table inet corevision_geoblock
 ```
 
 `setup-server.sh` löscht nichts. Pakete mit `sudo apt remove`, Zertifikate liegen unter
