@@ -19,12 +19,16 @@ services:
             # Caddys Weiterleitungen ins Leere.
             - '${BIND_IP:?BIND_IP fehlt in .env — Dev: Tailscale-IP, Prod: 0.0.0.0}:80:80'
             - '${BIND_IP:?BIND_IP fehlt in .env — Dev: Tailscale-IP, Prod: 0.0.0.0}:443:443'
+            # HTTP/3 (QUIC) wie auf cvsx2 — Caddy spricht es von selbst, sobald UDP 443 ankommt.
+            - '${BIND_IP:?BIND_IP fehlt in .env — Dev: Tailscale-IP, Prod: 0.0.0.0}:443:443/udp'
         volumes:
             # Ganzes Verzeichnis statt Einzeldatei: Ein Einzeldatei-Mount hängt am Inode und
             # sähe eine neu geschriebene Caddyfile nicht.
             - ./caddy:/etc/caddy:ro
             - /var/lib/edge/data:/data
             - /var/lib/edge/config:/config
+            # Zugriffsprotokolle je Site (import zugriffslog) für CrowdSec auf dem Host
+            - /var/log/caddy:/var/log/caddy
         networks:
             - edge
 

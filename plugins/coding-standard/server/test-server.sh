@@ -33,7 +33,7 @@ trap '[ -n "${BEHALTEN:-}" ] || rm -rf "$tmp"' EXIT
 
 # --- Werkzeugkasten: Grundbefehle als Weiterleitung, dazu jq, falls vorhanden
 mkdir -p "$tmp/bin"
-for w in grep sed head tail tr cat mkdir chmod cp rm mv touch stat mktemp dirname env wc find awk readlink ln install sort cut basename printf gzip date jq; do
+for w in grep sed head tail tr cat mkdir chmod cp rm mv touch stat mktemp dirname env wc find awk readlink ln install sort cut basename printf gzip date cmp jq; do
     p="$(command -v "$w" 2>/dev/null)" || continue
     case "$p" in /*) ;; *) continue ;; esac
     printf '#!%s\nexec "%s" "$@"\n' "$BASH_BIN" "$p" > "$tmp/bin/$w"; chmod +x "$tmp/bin/$w"
@@ -55,17 +55,45 @@ esac'
 # nft: -c prüft, -f lädt (Kopie nach nft-geladen), nft-ungueltig lässt beides scheitern;
 # get element findet jede Adresse außer denen in nft-fremd (Aussperrschutz).
 stub "$S" nft 'echo "nft $*" >> "$ZUSTAND/log"
+case "$*" in "list table ip crowdsec") [ -f "$ZUSTAND/an-crowdsec-firewall-bouncer" ]; exit;; esac   # Tabelle des Bouncers
 case "$1" in
-  -c) [ ! -f "$ZUSTAND/nft-ungueltig" ];;
-  -f) [ ! -f "$ZUSTAND/nft-ungueltig" ] && cp "$2" "$ZUSTAND/nft-geladen";;
+  # nft-ablehnen: Muster, an denen nft eine Datei ablehnt — Adressen, die nur die Prüfung im Skript annähme
+  -c) [ ! -f "$ZUSTAND/nft-ungueltig" ] && ! { [ -f "$ZUSTAND/nft-ablehnen" ] && grep -qF -f "$ZUSTAND/nft-ablehnen" "$3"; };;
+  -f) [ ! -f "$ZUSTAND/nft-ungueltig" ] && ! { [ -f "$ZUSTAND/nft-ablehnen" ] && grep -qF -f "$ZUSTAND/nft-ablehnen" "$2"; } && cp "$2" "$ZUSTAND/nft-geladen";;
   # list set schreibt wie das echte nft viel mehr, als in eine Pipe passt: Wer mit grep -q liest,
   # bekommt SIGPIPE zu spüren (am 2026-09-29 auf Dev: 27.000 Bereiche).
   list) [ -f "$ZUSTAND/nft-geladen" ] || exit 1; cat "$ZUSTAND/nft-geladen"
         [ "$2" = set ] && for ((i = 1; i <= 4000; i++)); do printf "\t\t\t203.0.113.%d, 198.51.100.%d, 192.0.2.%d, 203.0.113.%d,\n" $i $i $i $i; done; true;;
   delete) rm -f "$ZUSTAND/nft-geladen";;
-  get) for f in $(cat "$ZUSTAND/nft-fremd" 2>/dev/null); do [ "$6" = "{ $f }" ] && exit 1; done; true;;
+  # Admin-Sets wie im Kernel: gefunden, wenn die Adresse im geladenen Set steht.
+  get) case "$5" in admin*) i="${6#"{ "}"; i="${i%" }"}"; sed -n "/set $5 {/,/^\t}\$/p" "$ZUSTAND/nft-geladen" 2>/dev/null | grep -qF -- "$i" && exit 0;; esac
+       for f in $(cat "$ZUSTAND/nft-fremd" 2>/dev/null); do [ "$6" = "{ $f }" ] && exit 1; done; true;;
 esac'
 stub "$S" sysctl 'echo "sysctl $*" >> "$ZUSTAND/log"'
+# Server-Schutz: gpg (Schlüssel des CrowdSec-Repos; gpg-falsch täuscht einen fremden vor, gpg-zwei
+# hängt einen zweiten an), cscli (Collections, Allowlist, Konsole; cs-bestaetigung-offen: angemeldet
+# erst nach Bestätigung in der Konsole), fail2ban-client (Jails aus der geschriebenen Datei;
+# f2b-kaputt lässt reload scheitern), hostname
+stub "$S" gpg 'case "$1" in
+  --show-keys) if [ -f "$ZUSTAND/gpg-falsch" ]; then f=0000000000000000000000000000000000000000; else f=6A89E3C2303A901A889971D3376ED5326E93CD0C; fi
+               echo "pub:-:4096:1:376ED5326E93CD0C:1:::-:::scESC::::::23::0:"; echo "fpr:::::::::$f:"
+               [ -f "$ZUSTAND/gpg-zwei" ] && { echo "pub:-:4096:1:8D81803C0EBFCD88:1:::-:::scESC::::::23::0:"; echo "fpr:::::::::9DC858229FC7DD38854AE2D88D81803C0EBFCD88:"; }; true;;
+  --dearmor) cat;;
+esac'
+stub "$S" cscli 'echo "cscli $*" >> "$ZUSTAND/log"
+case "$1 $2" in
+  "collections list") echo "name,status,version"; sed "s/$/,enabled,1.0/" "$ZUSTAND/cs-collections" 2>/dev/null;;
+  "collections install") shift 2; for c in "$@"; do echo "$c" >> "$ZUSTAND/cs-collections"; done;;
+  "capi status") if [ -f "$ZUSTAND/cs-enrolled" ]; then echo "Your instance is enrolled in the console"; else echo "Your instance is not enrolled in the console"; fi;;
+  "console enroll") [ -f "$ZUSTAND/cs-bestaetigung-offen" ] || touch "$ZUSTAND/cs-enrolled";;
+  "allowlists delete") rm -f "$ZUSTAND/cs-allowlist";;
+  "allowlists create") : > "$ZUSTAND/cs-allowlist";;
+  "allowlists add") shift 3; for a in "$@"; do echo "$a" >> "$ZUSTAND/cs-allowlist"; done;;
+  "allowlists inspect") [ -f "$ZUSTAND/cs-allowlist" ] && cat "$ZUSTAND/cs-allowlist";;
+esac'
+stub "$S" fail2ban-client 'echo "fail2ban-client $*" >> "$ZUSTAND/log"
+case "$1" in status) grep -qF "[$2]" "$ZUSTAND/../etc/fail2ban/jail.d/corevision.local" 2>/dev/null;; reload) [ ! -f "$ZUSTAND/f2b-kaputt" ];; *) true;; esac'
+stub "$S" hostname 'echo testserver'
 stub "$S" id 'echo 0'
 stub "$S" who '[ -f "$ZUSTAND/who" ] && cat "$ZUSTAND/who"; true'   # who -m: Gegenstelle, wenn sudo SSH_CONNECTION entfernt
 stub "$S" logger 'shift 2; [ "$1" = -- ] && shift; echo "$*" >> "$ZUSTAND/journal"'   # logger -t geoblock -- <text>
@@ -73,7 +101,12 @@ stub "$S" ip 'echo "1.1.1.1 via 203.0.113.1 dev eth0 src 203.0.113.10 uid 0"'
 stub "$S" tailscale 'case "$*" in "ip -4") [ -n "${TS_IP:-}" ] && echo "$TS_IP";; esac'
 stub "$S" ufw 'echo "ufw $*" >> "$ZUSTAND/log"
 case "$1" in
-  status) if [ -f "$ZUSTAND/ufw-an" ]; then echo "Status: active"; else echo "Status: inactive"; fi; cat "$ZUSTAND/ufw-regeln" 2>/dev/null;;
+  status) if [ -f "$ZUSTAND/ufw-an" ]; then echo "Status: active"; else echo "Status: inactive"; fi
+          # ufw zeigt „disabled (routed)“, solange der Server nichts weiterleitet (ohne Docker)
+          [ "${2:-}" = verbose ] && { if [ -f "$ZUSTAND/ufw-routed-deny" ]; then r=deny; elif [ -f "$ZUSTAND/ufw-routed-allow" ]; then r=allow; else r=disabled; fi
+                                      echo "Default: deny (incoming), allow (outgoing), $r (routed)"; }
+          cat "$ZUSTAND/ufw-regeln" 2>/dev/null;;
+  default) [ "$*" = "default deny routed" ] && touch "$ZUSTAND/ufw-routed-deny";;
   --force) [ "$2" = enable ] && touch "$ZUSTAND/ufw-an"; [ "$2" = delete ] && { shift 3; grep -v "^$* " "$ZUSTAND/ufw-regeln" > "$ZUSTAND/r" 2>/dev/null; mv "$ZUSTAND/r" "$ZUSTAND/ufw-regeln"; };;
   allow) [ "$2" = 22/tcp ] && { grep -q "^22/tcp " "$ZUSTAND/ufw-regeln" 2>/dev/null || echo "22/tcp                     ALLOW       Anywhere" >> "$ZUSTAND/ufw-regeln"; };;
 esac
@@ -97,11 +130,9 @@ case " $* " in *" @- "*) cat > /dev/null;; esac
 case " $* " in *" -sI "*) [ -f "$ZUSTAND/hsts" ] && printf "HTTP/2 200\r\nstrict-transport-security: max-age=31536000\r\n\r\n"; exit 0;; esac
 out=""; url=""; prev=""
 for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; case "$a" in http*) url="$a";; esac; prev="$a"; done
-# Länderliste (Probe in zustand/dbip.csv.gz, dbip-fehlt-<monat> heißt 404) und Dienstlisten
+# Länderliste (Probe in zustand/ripe.txt; fehlt sie, ist RIPE nicht erreichbar) und Dienstlisten
 case "$url" in
-  *download.db-ip.com/*) m="${url##*lite-}"; m="${m%.csv.gz}"
-      { [ ! -f "$ZUSTAND/dbip-fehlt-$m" ] && [ -f "$ZUSTAND/dbip.csv.gz" ]; } || exit 22
-      cp "$ZUSTAND/dbip.csv.gz" "$out"; exit 0;;
+  *ftp.ripe.net/*) [ -f "$ZUSTAND/ripe.txt" ] || exit 22; cp "$ZUSTAND/ripe.txt" "$out"; exit 0;;
   *googlebot.json) printf "{\"prefixes\":[{\"ipv6Prefix\":\"2001:4860:4801:10::/64\"},{\"ipv4Prefix\":\"66.249.64.0/27\"}]}" > "$out"; exit 0;;
   *ips_webhooks.txt) [ -f "$ZUSTAND/dienst-fehlt" ] && exit 22; printf "3.18.12.63\r\n3.130.192.231\r\n" > "$out"; exit 0;;
   *IPv4andIPv6.txt) printf "0.0.0.0/0\n::/0\n1.2.3.0/8\n5.6.7.8\n" > "$out"; exit 0;;   # zu weite Einträge einer fremden Liste
@@ -120,19 +151,29 @@ case "$url" in
   *) echo "{}";;
 esac'
 
-# Probeliste im Format von db-ip: AT, DE, CH, LI (LI als Einzeladresse) aus 203.0.113.0/24,
-# dazu US-Bereiche und je ein IPv6-Bereich für AT und US.
-printf '%s\n' '0.0.0.0,0.255.255.255,ZZ' '66.249.64.0,66.249.95.255,US' '198.51.100.0,198.51.100.255,US' \
-    '203.0.113.0,203.0.113.127,AT' '203.0.113.128,203.0.113.191,DE' '203.0.113.192,203.0.113.223,CH' \
-    '203.0.113.224,203.0.113.224,LI' '2001:db8:a::,2001:db8:a:ffff:ffff:ffff:ffff:ffff,AT' \
-    '2001:db8:f::,2001:db8:f:ffff:ffff:ffff:ffff:ffff,US' '2003:4000::,23ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff,CH' \
-    | gzip > "$tmp/dbip.csv.gz"
+# ripe_liste — Einträge von stdin als vollständige RIPE-Datei: Versionszeile und Summenzeilen
+# passend zur Zahl der Einträge je Typ (daran erkennt geoblock eine abgeschnittene Datei).
+ripe_liste() {
+    awk -F'|' '{ z[$3]++; zeile[NR] = $0 }
+        END { printf "2|ripencc|1|%d|19700101|20260930|+0200\n", NR
+              printf "ripencc|*|ipv4|*|%d|summary\nripencc|*|asn|*|%d|summary\nripencc|*|ipv6|*|%d|summary\n", z["ipv4"], z["asn"], z["ipv6"]
+              for (i = 1; i <= NR; i++) print zeile[i] }'
+}
+# Probe im Format von RIPE: AT, DE, CH, LI (LI als Einzeladresse) aus 203.0.113.0/24, dazu
+# US-Bereiche, ein reservierter DE-Eintrag (zählt nicht), je ein IPv6-Präfix für AT und US.
+printf '%s\n' 'ripencc|US|ipv4|66.249.64.0|8192|20000101|allocated|x' 'ripencc|US|ipv4|198.51.100.0|256|20000101|allocated|x' \
+    'ripencc|AT|ipv4|203.0.113.0|128|20000101|allocated|x' 'ripencc|DE|ipv4|203.0.113.128|64|20000101|assigned|x' \
+    'ripencc|CH|ipv4|203.0.113.192|32|20000101|allocated|x' 'ripencc|LI|ipv4|203.0.113.224|1|20000101|allocated|x' \
+    'ripencc|DE|ipv4|198.18.0.0|256|20000101|reserved|x' 'ripencc||ipv4|192.0.2.0|256||available' \
+    'ripencc|AT|ipv6|2001:db8:a::|48|20000101|allocated|x' 'ripencc|US|ipv6|2001:db8:f::|48|20000101|allocated|x' \
+    'ripencc|AT|asn|64512|1|20000101|allocated|x' > "$tmp/ripe-eintraege"
+ripe_liste < "$tmp/ripe-eintraege" > "$tmp/ripe.txt"
 
 neue_welt() { # neue_welt <name> — frisches Dateisystem mit Ubuntu 26.04
     local w="$tmp/$1"
     mkdir -p "$w/etc/apt/sources.list.d" "$w/zustand"
     printf 'ID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=resolute\n' > "$w/etc/os-release"
-    cp "$tmp/dbip.csv.gz" "$w/zustand/dbip.csv.gz"
+    cp "$tmp/ripe.txt" "$w/zustand/ripe.txt"
     printf '%s' "$w"
 }
 # set_von <nft-datei> <set> — der Block eines Sets, von „set <name> {“ bis zu seiner schließenden Klammer
@@ -141,7 +182,7 @@ lauf() { # lauf <welt> <skript> <argumente…> — isoliert, mit Attrappen
     local w="$1" skript="$2"; shift 2
     env -i PATH="$tmp/bin:$S" HOME="$w/root" SERVER_WURZEL="$w" ZUSTAND="$w/zustand" \
         TS_IP="${TS_IP:-}" SSH_CONNECTION="${SSH_CONNECTION:-}" DNS_API_TOKEN="${DNS_API_TOKEN:-}" \
-        "$BASH_BIN" "$skript" "$@" 2>&1
+        CROWDSEC_ENROLL_KEY="${CROWDSEC_ENROLL_KEY:-}" "$BASH_BIN" "$skript" "$@" 2>&1 </dev/null
 }
 
 # --- Grundlagen und Fehlerausgänge
@@ -163,11 +204,11 @@ w="$(neue_welt trocken)"
 out="$(TS_IP=100.64.0.5 lauf "$w" "$SETUP" --rolle dev --dns hetzner --email a@b.at --dry-run)"; rc=$?
 [ $rc -eq 0 ] && printf '%s' "$out" | grep -q "Trockenlauf beendet"; behaupte "setup-server.sh: --dry-run endet mit 0" $?
 [ ! -e "$w/opt" ] && [ ! -e "$w/etc/corevision" ] && [ ! -s "$w/zustand/pakete" ]; behaupte "setup-server.sh: --dry-run schreibt und installiert nichts" $?
-[ ! -e "$w/var/lib" ] && [ ! -e "$w/etc/systemd" ] && ! grep -qE "nft -f|download.db-ip" "$w/zustand/log"; behaupte "setup-server.sh: --dry-run lädt keine Länderliste und kein Geoblocking" $?
+[ ! -e "$w/var/lib" ] && [ ! -e "$w/etc/systemd" ] && ! grep -qE "nft -f|ftp.ripe.net" "$w/zustand/log"; behaupte "setup-server.sh: --dry-run lädt keine Länderliste und kein Geoblocking" $?
 
 # --- Dev mit Hetzner: Pakete, Bindung, Caddyfile, ufw, Befehle
 w="$(neue_welt dev)"
-out="$(TS_IP=100.64.0.5 SSH_CONNECTION="100.64.0.9 5000 100.64.0.5 22" DNS_API_TOKEN=geheim lauf "$w" "$SETUP" --rolle dev --dns hetzner --email admin@example.at)"; rc=$?
+out="$(TS_IP=100.64.0.5 SSH_CONNECTION="100.64.0.9 5000 100.64.0.5 22" DNS_API_TOKEN=geheim CROWDSEC_ENROLL_KEY=probe-schluessel lauf "$w" "$SETUP" --rolle dev --dns hetzner --email admin@example.at)"; rc=$?
 [ $rc -eq 0 ]; behaupte "Dev/Hetzner: Einrichtung endet mit 0" $?
 [ $rc -eq 0 ] || printf '%s\n' "$out" | grep -E "FEHL|HAND" | sed 's/^/       /'
 grep -qx docker-compose-plugin "$w/zustand/pakete" && grep -qx tailscale "$w/zustand/pakete"; behaupte "Dev: Docker Compose und Tailscale installiert" $?
@@ -180,6 +221,7 @@ grep -q "ufw allow 80/tcp" "$w/zustand/log"; [ $? -ne 0 ]; behaupte "Dev: keine 
 grep -q "ufw allow in on tailscale0" "$w/zustand/log" && grep -q "ufw --force enable" "$w/zustand/log"; behaupte "Dev: ufw an, Tailnet erlaubt" $?
 grep -q "ufw allow 22/tcp" "$w/zustand/log"; [ $? -ne 0 ]; behaupte "Dev: SSH über Tailnet — kein öffentliches 22" $?
 [ -x "$w/usr/local/bin/edge-site" ] && grep -q "exec bash .*/edge-site" "$w/usr/local/bin/edge-site"; behaupte "Dev: Befehl edge-site installiert" $?
+[ -x "$w/usr/local/bin/schutz" ] && grep -q "exec bash .*/schutz" "$w/usr/local/bin/schutz"; behaupte "Dev: Befehl schutz installiert" $?
 grep -q "docker compose -f $w/opt/edge/compose.yaml up -d --build" "$w/zustand/log"; behaupte "Dev: Edge gebaut und gestartet" $?
 grep -q "download.docker.com/linux/ubuntu/gpg" "$w/zustand/log" && ! grep -q "get.docker.com" "$w/zustand/log"; behaupte "Dev: Docker aus dem signierten Repo, nicht get.docker.com" $?
 
@@ -189,16 +231,22 @@ grep -qx nftables "$w/zustand/pakete" && grep -q "^LAENDER=AT,CH,LI,DE$" "$w/etc
 [ -s "$gb_regeln" ] && cmp -s "$gb_regeln" "$w/zustand/nft-geladen" && grep -q "nft -c -f" "$w/zustand/log"; behaupte "Geoblocking: Regeln mit nft -c geprüft, geladen und gespeichert" $?
 set_von "$gb_regeln" erlaubt4 | grep -q "203.0.113.0-203.0.113.127," && set_von "$gb_regeln" erlaubt4 | grep -q "203.0.113.192-203.0.113.223," \
     && set_von "$gb_regeln" erlaubt4 | grep -qE "[[:space:]]203\.0\.113\.224$"; behaupte "Geoblocking: IPv4 der vier Länder, Einzeladresse ohne Bereich" $?
-set_von "$gb_regeln" erlaubt6 | grep -q "2001:db8:a::-2001:db8:a:ffff" && ! set_von "$gb_regeln" erlaubt4 | grep -q ":"; behaupte "Geoblocking: IPv6 im eigenen Set" $?
+set_von "$gb_regeln" erlaubt6 | grep -q "2001:db8:a::/48" && ! set_von "$gb_regeln" erlaubt4 | grep -q ":"; behaupte "Geoblocking: IPv6 im eigenen Set" $?
 ! grep -qE "198\.51\.100|66\.249|2001:db8:f::" "$gb_regeln"; behaupte "Geoblocking: Bereiche anderer Länder fehlen" $?
 grep -q "hook prerouting priority -150;" "$gb_regeln" && grep -q 'iifname { "lo", "tailscale0" } accept' "$gb_regeln" \
     && grep -q "ct state established,related accept" "$gb_regeln" && tail -3 "$gb_regeln" | grep -q "counter drop"; behaupte "Geoblocking: am Hook prerouting (auch weitergeleitete Docker-Pakete), Tailnet und Antworten frei, sonst verworfen" $?
+# Parameter von cvsx2: DHCP, Tailscale direkt, gedrosseltes Log unmittelbar vor dem Drop
+grep -q "meta nfproto ipv4 udp sport 67 udp dport 68 accept" "$gb_regeln" && grep -q "udp dport 41641 accept" "$gb_regeln" \
+    && tail -4 "$gb_regeln" | grep -q 'limit rate 5/minute burst 5 packets log prefix "\[GEOBLOCK\] "'; behaupte "Geoblocking: DHCP, Tailscale UDP 41641, Log gedrosselt vor dem Drop (wie cvsx2)" $?
+grep -q "ip saddr @admin4 accept" "$gb_regeln" && grep -q "ip6 saddr @admin6 accept" "$gb_regeln" \
+    && grep -q "^LISTE=ripe$" "$w/var/lib/corevision/geoblock/stand"; behaupte "Geoblocking: Sets für Admin-IPs, Stand aus der RIPE-Liste" $?
 [ -x "$w/usr/local/bin/geoblock" ] && cmp -s "$w/usr/local/bin/geoblock" "$HERE/geoblock"; behaupte "Geoblocking: Befehl als Kopie installiert — beim Start läuft kein Code aus dem Klon" $?
 [ -f "$w/zustand/an-corevision-geoblock.service" ] && [ -f "$w/zustand/an-corevision-geoblock-aktualisieren.timer" ] \
     && [ -f "$w/zustand/an-corevision-geoblock-waechter.timer" ]; behaupte "Geoblocking: Dienst, Aktualisierung und Wächter eingeschaltet" $?
-! grep -q "2003:4000" "$gb_regeln"; behaupte "Geoblocking: IPv6-Bereich über den ersten Block hinaus (Lückenfüller) verworfen" $?
+! grep -qE "198.18.0.0|192.0.2.0" "$gb_regeln"; behaupte "Geoblocking: nur zugeteilte Einträge (allocated, assigned), keine reservierten oder freien" $?
 grep -q "^Before=network-pre.target docker.service tailscaled.service$" "$w/etc/systemd/system/corevision-geoblock.service" \
-    && grep -q "^OnCalendar=Mon \*-\*-\* 04:30:00 Europe/Vienna$" "$w/etc/systemd/system/corevision-geoblock-aktualisieren.timer"; behaupte "Geoblocking: lädt vor Netz und Docker, Liste jeden Montag (Europe/Vienna)" $?
+    && grep -q "^OnCalendar=Sun \*-\*-\* 04:15:00 Europe/Vienna$" "$w/etc/systemd/system/corevision-geoblock-aktualisieren.timer" \
+    && grep -q "^RandomizedDelaySec=30m$" "$w/etc/systemd/system/corevision-geoblock-aktualisieren.timer"; behaupte "Geoblocking: lädt vor Netz und Docker, Liste jeden Sonntag 04:15 (Europe/Vienna, wie cvsx2)" $?
 # Der Startbefehl der Einheit, so wie systemd ihn ausführt (Pfade in die Testwelt umgelegt)
 start="$(sed -n "s/^ExecStart=\/bin\/sh -c '\(.*\)'$/\1/p" "$w/etc/systemd/system/corevision-geoblock.service")"
 start="${start//\/var\/lib\//$w/var/lib/}"
@@ -207,6 +255,31 @@ rm -f "$w/zustand/nft-geladen"; start_lauf && cmp -s "$gb_regeln" "$w/zustand/nf
 mv "$gb_regeln" "$tmp/regeln-gut"; start_lauf; rc=$?
 [ $rc -ne 0 ] && cmp -s "$w/var/lib/corevision/geoblock/gesperrt.nft" "$w/zustand/nft-geladen" && ! grep -q "elements" "$w/zustand/nft-geladen"; behaupte "Start: gespeicherte Sperre fehlt → gesperrte Fassung, Exit ≠ 0" $?
 mv "$tmp/regeln-gut" "$gb_regeln"; cp "$gb_regeln" "$w/zustand/nft-geladen"
+
+# Server-Schutz (ADR 0009): Parameter von cvsx2 — Firewall, Fail2Ban, CrowdSec, Journal, Zugriffsprotokolle
+grep -q "ufw default deny routed" "$w/zustand/log" && grep -q "ufw logging low" "$w/zustand/log" \
+    && ! grep -q "ufw allow 443/udp" "$w/zustand/log"; behaupte "Dev: ufw verwirft auch Weitergeleitetes, Logging low, kein öffentliches 443/udp" $?
+for p in fail2ban python3-systemd rsyslog crowdsec crowdsec-firewall-bouncer-nftables; do grep -qx "$p" "$w/zustand/pakete" || { echo "       fehlt: $p"; false; }; done; behaupte "Dev: Fail2Ban, rsyslog, CrowdSec und Bouncer installiert" $?
+jail="$w/etc/fail2ban/jail.d/corevision.local"
+grep -q "^ignoreip = 127.0.0.1/8 ::1 100.64.0.0/10 fd7a:115c:a1e0::/48 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16$" "$jail" && grep -q "^maxretry = 3$" "$jail" && grep -q "^findtime = 15m$" "$jail" && grep -q "^bantime  = 15m$" "$jail" \
+    && grep -q "^bantime.factor    = 4$" "$jail" && grep -q "^bantime.maxtime   = 1w$" "$jail" && grep -q "^backend  = systemd$" "$jail"; behaupte "Fail2Ban sshd: 3 in 15 min → 15 min, ×4 bis 1 Woche (wie cvsx2)" $?
+grep -q "^\[recidive\]$" "$jail" && grep -q "^banaction = nftables\[type=allports, blocktype=drop, chain_hook=prerouting, chain_priority=-160\]$" "$jail"; behaupte "Fail2Ban recidive: alle Ports, am Hook prerouting (wie cvsx2)" $?
+grep -qx "deb \[signed-by=/etc/apt/keyrings/crowdsec_crowdsec-archive-keyring.gpg\] https://packagecloud.io/crowdsec/crowdsec/any/ any main" "$w/etc/apt/sources.list.d/crowdsec_crowdsec.list" \
+    && [ -f "$w/etc/apt/keyrings/crowdsec_crowdsec-archive-keyring.gpg" ]; behaupte "CrowdSec aus dem signierten Repo (Fingerabdruck geprüft)" $?
+[ "$(sort -u "$w/zustand/cs-collections" | wc -l | tr -d ' ')" -eq 6 ] && grep -qx "crowdsecurity/caddy" "$w/zustand/cs-collections"; behaupte "CrowdSec: die sechs Collections von cvsx2" $?
+grep -qx "  - /var/log/caddy/access.log" "$w/etc/crowdsec/acquis.d/setup.caddy.yaml" && grep -q "/var/log/auth.log" "$w/etc/crowdsec/acquis.d/setup.sshd.yaml" \
+    && grep -q "/var/log/kern.log" "$w/etc/crowdsec/acquis.d/setup.linux.yaml"; behaupte "CrowdSec liest auth.log, syslog, kern.log und die Zugriffsprotokolle des Edge" $?
+grep -q "cscli console enroll --name testserver --enable context,manual probe-schluessel" "$w/zustand/log"; behaupte "CrowdSec an der Konsole angemeldet (Key aus der Umgebung)" $?
+grep -q "^MaxRetentionSec=90day$" "$w/etc/systemd/journald.conf.d/corevision.conf"; behaupte "Journal höchstens 90 Tage" $?
+grep -q "(zugriffslog)" "$w/opt/edge/caddy/Caddyfile" && grep -q "roll_keep_for 2160h" "$w/opt/edge/caddy/Caddyfile" \
+    && [ -d "$w/var/log/caddy" ]; behaupte "Edge: Zugriffsprotokoll als Baustein (JSON, 50 MiB × 5, höchstens 90 Tage), /var/log/caddy angelegt" $?
+[ "$(grep -cF 'regexp "(?i)((?:/reset-password(?:/reset)?|/password/reset|/reset/[^/?#]+|/email/verify/[^/?#]+)/|[?&](?:[a-z_]*token|key|login|email|password|signature|code|otp)=)[^/?&#]*" "${1}ENTFERNT"' "$w/opt/edge/caddy/Caddyfile")" -eq 3 ] \
+    && grep -q $'^\t\t\trequest>uri regexp' "$w/opt/edge/caddy/Caddyfile" && grep -q $'^\t\t\trequest>headers>Referer regexp' "$w/opt/edge/caddy/Caddyfile" \
+    && grep -q $'^\t\t\tresp_headers>Location regexp' "$w/opt/edge/caddy/Caddyfile" \
+    && grep -q $'^\t\t\twrap json$' "$w/opt/edge/caddy/Caddyfile"; behaupte "Edge: Token, Schlüssel und E-Mail aus URI, Referer und Location entfernt, Adresse bleibt" $?
+grep -q $'^\tweekly$' "$w/etc/logrotate.d/corevision-caddy" && grep -q $'^\trotate 11$' "$w/etc/logrotate.d/corevision-caddy" \
+    && grep -qx "d /var/log/caddy 0750 root root 90d" "$w/etc/tmpfiles.d/corevision-caddy.conf"; behaupte "Edge: Zugriffsprotokoll auch bei wenig Verkehr höchstens 90 Tage (logrotate, tmpfiles)" $?
+grep -q "443:443/udp" "$w/opt/edge/compose.yaml" && grep -q "/var/log/caddy:/var/log/caddy" "$w/opt/edge/compose.yaml"; behaupte "Edge: HTTP/3 (443/udp) und Protokollordner im Verbund" $?
 
 # Idempotenz: zweiter Lauf ohne Änderung
 : > "$w/zustand/log"
@@ -288,12 +361,18 @@ out="$(rechte_lauf "root 777" "*/plugins")"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "/plugins gehört nicht root oder ist für andere beschreibbar (root 777)" \
     && printf '%s' "$out" | grep -q "/plugins gehört nicht root oder ist für andere beschreibbar — als root klonen bzw. Rechte korrigieren"
 behaupte "Rechte: nur ein Elternordner beschreibbar → setup-server.sh und geoblock weisen ab" $?
+# schutz bekommt einen Starter unter /usr/local/bin, der Code aus dem Klon als root ausführt
+out="$(rechte_lauf "root 777" "*/schutz")"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "/schutz gehört nicht root oder ist für andere beschreibbar (root 777)"
+behaupte "Rechte: schutz für andere beschreibbar → abgewiesen, bevor sein Starter entsteht" $?
 
 # --- Prod mit Cloudflare: öffentliche Ports, alle Adressen
 w="$(neue_welt prod)"
 out="$(TS_IP=100.64.0.6 SSH_CONNECTION="100.64.0.9 5000 100.64.0.6 22" DNS_API_TOKEN=cf lauf "$w" "$SETUP" --rolle prod --dns cloudflare --email admin@example.at)"; rc=$?
 [ $rc -eq 0 ]; behaupte "Prod/Cloudflare: Einrichtung endet mit 0" $?
 grep -q "ufw allow 80/tcp" "$w/zustand/log" && grep -q "ufw allow 443/tcp" "$w/zustand/log"; behaupte "Prod: 80/443 öffentlich" $?
+grep -q "ufw allow 443/udp" "$w/zustand/log"; behaupte "Prod: 443/udp für HTTP/3 (wie cvsx2)" $?
+printf '%s' "$out" | grep -q "HAND    CrowdSec an der Konsole anmelden"; behaupte "Prod ohne Enroll-Key: Handgriff statt Abbruch" $?
 grep -q "^BIND_IP=0.0.0.0$" "$w/opt/edge/.env"; behaupte "Prod: Edge ausdrücklich auf allen Adressen (0.0.0.0)" $?
 cmp -s "$w/var/lib/corevision/geoblock/regeln.nft" "$w/zustand/nft-geladen"; behaupte "Prod: Geoblocking auch vor den öffentlichen Ports 80/443" $?
 grep -q "^ZIEL_IP=203.0.113.10$" "$w/etc/corevision/server.env"; behaupte "Prod: A-Records auf die öffentliche IPv4" $?
@@ -312,10 +391,17 @@ lauf "$w_dev" "$SITE" add "App.Example.at" app:8080 >/dev/null; [ $? -eq 1 ]; be
 lauf "$w_dev" "$SITE" add app.example.at app >/dev/null; [ $? -eq 1 ]; behaupte "edge-site: Ziel ohne Port endet mit 1" $?
 lauf "$w_dev" "$SITE" frag >/dev/null; [ $? -eq 1 ]; behaupte "edge-site: unbekannter Befehl endet mit 1" $?
 lauf "$w_dev" "$SITE" remove "../caddy/x" >/dev/null; [ $? -eq 1 ]; behaupte "edge-site: remove prüft den Hostnamen (kein ../)" $?
+# Nach `git pull`, bevor setup-server.sh lief: Caddyfile ohne den Baustein
+cp "$w_dev/opt/edge/caddy/Caddyfile" "$tmp/caddyfile-vorher"; sed -i '/^(zugriffslog) {$/,/^}$/d' "$w_dev/opt/edge/caddy/Caddyfile"
+out="$(lauf "$w_dev" "$SITE" add neu.example.at neu:8080)"; rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q "Baustein zugriffslog" && [ ! -f "$w_dev/opt/edge/caddy/sites/dev.neu.example.at.caddy" ]
+behaupte "edge-site add ohne Baustein zugriffslog → klare Meldung, keine Site" $?
+cp "$tmp/caddyfile-vorher" "$w_dev/opt/edge/caddy/Caddyfile"
 if [ $hat_jq -eq 1 ]; then
     out="$(lauf "$w_dev" "$SITE" add app.example.at app-dev-app:8080)"; rc=$?
     [ $rc -eq 0 ] && [ -f "$w_dev/opt/edge/caddy/sites/dev.app.example.at.caddy" ]; behaupte "edge-site Dev: Site unter dev.<host>" $?
     grep -q "import tls_dns" "$w_dev/opt/edge/caddy/sites/dev.app.example.at.caddy" && grep -q "reverse_proxy app-dev-app:8080" "$w_dev/opt/edge/caddy/sites/dev.app.example.at.caddy"; behaupte "edge-site Dev: Site mit DNS-01 und Ziel" $?
+    grep -q "import zugriffslog" "$w_dev/opt/edge/caddy/sites/dev.app.example.at.caddy"; behaupte "edge-site: neue Site schreibt das Zugriffsprotokoll für CrowdSec" $?
     grep -q 'hetzner.cloud/v1/zones/example.at/rrsets$' "$w_dev/zustand/log" && grep -q '"name":"dev.app","type":"A","ttl":300,"records":\[{"value":"100.64.0.5"}\]' "$w_dev/zustand/log"; behaupte "edge-site Dev: A-Record dev.app → Tailscale-IP über die Hetzner-API" $?
     lauf "$w_dev" "$SITE" add app.example.at app-dev-app:8080 >/dev/null
     grep -q "rrsets/dev.app/A/actions/set_records" "$w_dev/zustand/log"; behaupte "edge-site Dev: zweiter Aufruf ersetzt den A-Record statt ihn doppelt anzulegen" $?
@@ -397,12 +483,108 @@ lauf "$w_kopf" "$SITE" kopfzeilen web.example.at an >/dev/null; rc=$?
 lauf "$w_kopf" "$SITE" kopfzeilen $'web.example.at\n../../x' an >/dev/null; [ $? -eq 1 ]
 behaupte "edge-site: Hostname mit Zeilenumbruch wird abgewiesen" $?
 
+# --- schutz: allein aufgerufen (andere Linux-Server), Admin-IPs, Fehlerausgänge, Idempotenz, Prüfung
+SZ="$HERE/schutz"
+bash -n "$SZ"; behaupte "schutz: Syntax" $?
+w="$(neue_welt schutz)"
+lauf "$w" "$SZ" --help | grep -q "Parametern"; behaupte "schutz: --help" $?
+lauf "$w" "$SZ" >/dev/null; [ $? -eq 1 ]; behaupte "schutz: ohne Befehl endet mit 1" $?
+lauf "$w" "$SZ" einrichten --dry-run >/dev/null
+[ ! -e "$w/etc/fail2ban" ] && [ ! -e "$w/etc/crowdsec" ] && [ ! -e "$w/etc/apt/keyrings" ] && [ ! -s "$w/zustand/pakete" ]; behaupte "schutz --dry-run: schreibt und installiert nichts" $?
+touch "$w/zustand/gpg-falsch"
+out="$(lauf "$w" "$SZ" einrichten)"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "Fingerabdruck" && [ ! -f "$w/etc/apt/sources.list.d/crowdsec_crowdsec.list" ] \
+    && ! grep -qx crowdsec "$w/zustand/pakete"; behaupte "schutz: fremder Schlüssel am CrowdSec-Repo → nichts installiert, Exit ≠ 0" $?
+rm "$w/zustand/gpg-falsch"; touch "$w/zustand/gpg-zwei"
+out="$(lauf "$w" "$SZ" einrichten)"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "nicht genau der" && [ ! -f "$w/etc/apt/keyrings/crowdsec_crowdsec-archive-keyring.gpg" ] \
+    && ! grep -qx crowdsec "$w/zustand/pakete"; behaupte "schutz: echter Schlüssel mit angehängtem zweiten → nichts installiert (apt vertraute sonst beiden)" $?
+rm "$w/zustand/gpg-zwei"
+mkdir -p "$w/etc/corevision" "$w/etc/crowdsec"
+for kaputt in '192.0.2.5"' '0.0.0.0/0' '2001:db8::/8' '192.0.2.5/' '192.0.2.5 ignoreip'; do
+    printf 'LAENDER=AT,CH,LI,DE\nADMIN_IPS=%s\n' "$kaputt" > "$w/etc/corevision/geoblock.conf"; : > "$w/zustand/log"
+    out="$(lauf "$w" "$SZ" einrichten)"; rc=$?
+    [ $rc -eq 1 ] && printf '%s' "$out" | grep -q "Admin" && ! printf '%s' "$out" | grep -q "   mache " && [ ! -s "$w/zustand/log" ]
+    behaupte "schutz: Admin-IP „$kaputt“ von Hand in geoblock.conf → Abbruch, bevor etwas geschieht" $?
+done
+# Mit CR am Zeilenende (unter Windows bearbeitet): fällt weg, wie im awk von geoblock
+printf 'LAENDER=AT,CH,LI,DE\r\nADMIN_IPS=192.0.2.77,198.51.100.0/28,2001:db8:c::/48\r\n' > "$w/etc/corevision/geoblock.conf"
+printf 'filenames:\n  - /var/log/nginx/*.log\nlabels:\n  type: nginx\n' > "$w/etc/crowdsec/acquis.yaml"
+out="$(lauf "$w" "$SZ" einrichten)"; rc=$?
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q "HAND    CrowdSec an der Konsole anmelden"; behaupte "schutz ohne Enroll-Key: Handgriff, Exit 0 (keine Abfrage ohne Terminal)" $?
+grep -q "^ignoreip = 127.0.0.1/8 ::1 100.64.0.0/10 fd7a:115c:a1e0::/48 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 192.0.2.77 198.51.100.0/28 2001:db8:c::/48$" "$w/etc/fail2ban/jail.d/corevision.local" \
+    && ! grep -q $'\r' "$w/etc/fail2ban/jail.d/corevision.local"; behaupte "schutz: Tailnet, private Netze und Admin-IPs nie von Fail2Ban gesperrt (ignoreip, ohne CR)" $?
+wl="$w/etc/crowdsec/parsers/s02-enrich/corevision-admin-whitelist.yaml"
+grep -q '^    - "192.0.2.77"$' "$wl" && awk '/cidr:/{c=1} c && /198.51.100.0\/28/{f=1} END{exit !f}' "$wl" \
+    && grep -q '^    - "100.64.0.0/10"$' "$wl" && grep -q '^    - "fd7a:115c:a1e0::/48"$' "$wl" && grep -q '^    - "10.0.0.0/8"$' "$wl"
+behaupte "schutz: Tailnet, private Netze und Admin-IPs auf der CrowdSec-Whitelist (Adresse und Netz)" $?
+[ "$(cat "$w/zustand/cs-allowlist")" = $'192.0.2.77\n198.51.100.0/28\n2001:db8:c::/48' ]; behaupte "schutz: Admin-IPs auf der Allowlist (gilt auch für die Community-Blockliste)" $?
+grep -q "nginx" "$w/etc/crowdsec/acquis.yaml" && [ ! -e "$w/etc/crowdsec/acquis.yaml.vor-schutz" ] && printf '%s' "$out" | grep -q "acquis.yaml enthält eigene Quellen"
+behaupte "schutz: acquis.yaml mit Quellen des Betreibers bleibt, Warnung statt Verlagern" $?
+[ -d "$w/var/log/caddy" ] && grep -qx "force_inotify: true" "$w/etc/crowdsec/acquis.d/setup.caddy.yaml"; behaupte "schutz: /var/log/caddy vor dem Laden da, force_inotify — CrowdSec liest das Protokoll auch nach der Ersteinrichtung" $?
+grep -qx "MaxFileSec=1week" "$w/etc/systemd/journald.conf.d/corevision.conf" && grep -q "/var/log/crowdsec.log" "$w/etc/logrotate.d/corevision-crowdsec" \
+    && grep -qx $'\trotate 11' "$w/etc/logrotate.d/corevision-crowdsec"; behaupte "schutz: Journal und Protokoll von CrowdSec halten die 90 Tage auch auf ruhigen Servern" $?
+: > "$w/zustand/log"
+out="$(lauf "$w" "$SZ" einrichten)"; rc=$?
+[ $rc -eq 0 ] && ! printf '%s' "$out" | grep -q "   mache " && ! grep -qE "apt-get install|fail2ban-client reload|systemctl restart|allowlists (delete|add)" "$w/zustand/log"; behaupte "schutz: zweiter Lauf ändert nichts" $?
+touch "$w/zustand/ufw-an" "$w/zustand/ufw-routed-deny"
+lauf "$w" "$SZ" check >/dev/null; [ $? -eq 2 ]; behaupte "schutz check: nur die Konsole fehlt → Exit 2 (Handgriff)" $?
+# Anmeldung angefragt, in der Konsole noch nicht bestätigt: nicht bei jedem Lauf neu einschreiben
+touch "$w/zustand/cs-bestaetigung-offen"; : > "$w/zustand/log"
+out="$(CROWDSEC_ENROLL_KEY=probe lauf "$w" "$SZ" einrichten)"; rc=$?
+[ $rc -eq 0 ] && grep -q "cscli console enroll --name testserver --enable context,manual probe" "$w/zustand/log" && ! printf '%s' "$out" | grep -q "probe"
+behaupte "schutz: Key aus der Umgebung eingeschrieben, nie ausgegeben" $?
+: > "$w/zustand/log"
+out="$(CROWDSEC_ENROLL_KEY=probe lauf "$w" "$SZ" einrichten)"; rc=$?
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q "in app.crowdsec.net bestätigen" && ! grep -q "console enroll" "$w/zustand/log"
+behaupte "schutz: angefragte Anmeldung → Handgriff „bestätigen“, kein zweites Einschreiben" $?
+out="$(lauf "$w" "$SZ" check)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q "angefragt"; behaupte "schutz check: angefragt, nicht bestätigt → Exit 2" $?
+rm "$w/zustand/cs-bestaetigung-offen"; touch "$w/zustand/cs-enrolled"
+lauf "$w" "$SZ" check >/dev/null; behaupte "schutz check: mit Konsole alles grün" $?
+rm "$w/zustand/an-crowdsec-firewall-bouncer"
+out="$(lauf "$w" "$SZ" check)"; rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q "Tabelle ip crowdsec fehlt"; behaupte "schutz check: Bouncer ohne nftables-Tabelle → rot" $?
+touch "$w/zustand/an-crowdsec-firewall-bouncer"; rm "$w/zustand/ufw-routed-deny"
+lauf "$w" "$SZ" check >/dev/null; behaupte "schutz check: „disabled (routed)“ (Server ohne Weiterleitung) → grün" $?
+touch "$w/zustand/ufw-routed-allow"
+lauf "$w" "$SZ" check | grep -q "FEHLT   ufw nicht aktiv oder nicht"; behaupte "schutz check: ufw mit „allow (routed)“ → rot" $?
+rm "$w/zustand/ufw-routed-allow"
+# Admin-IPs nur im Geoblocking geändert (geoblock einrichten --admin-ips): check merkt es
+printf 'LAENDER=AT,CH,LI,DE\nADMIN_IPS=192.0.2.88\n' > "$w/etc/corevision/geoblock.conf"
+out="$(lauf "$w" "$SZ" check)"; rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q "Fail2Ban-Konfiguration weicht ab" && printf '%s' "$out" | grep -q "Allowlist der Admin-IPs fehlt oder veraltet"
+behaupte "schutz check: Admin-IPs geändert, schutz nicht nachgezogen → rot" $?
+touch "$w/zustand/f2b-kaputt"
+out="$(lauf "$w" "$SZ" einrichten)"; rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q "Fail2Ban hat die neue Konfiguration nicht geladen"; behaupte "schutz: Fail2Ban lädt nicht neu → Befund, Exit 1 (nicht still)" $?
+rm "$w/zustand/f2b-kaputt"
+printf 'LAENDER=AT,CH,LI,DE\nADMIN_IPS=\n' > "$w/etc/corevision/geoblock.conf"
+lauf "$w" "$SZ" einrichten >/dev/null; ! grep -q "192.0.2" "$wl" && grep -q '^    - "100.64.0.0/10"$' "$wl" \
+    && grep -q "^ignoreip = 127.0.0.1/8 ::1 100.64.0.0/10 fd7a:115c:a1e0::/48 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16$" "$w/etc/fail2ban/jail.d/corevision.local" \
+    && [ ! -f "$w/zustand/cs-allowlist" ]
+behaupte "schutz: Admin-IPs geleert → Whitelist, Allowlist und ignoreip ohne sie, Tailnet bleibt frei" $?
+# Ein vorhandener Keyring wird geprüft, nicht nur sein Dasein
+touch "$w/zustand/gpg-zwei"
+out="$(lauf "$w" "$SZ" einrichten)"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "nicht genau der"; behaupte "schutz: vorhandener Keyring mit zweitem Schlüssel → erneut geprüft, abgelehnt" $?
+rm "$w/zustand/gpg-zwei"
+
+# Sites aus der Zeit vor 1.8.0 bekommen beim nächsten Lauf das Zugriffsprotokoll
+w="$tmp/dev"; alt_site="$w/opt/edge/caddy/sites/alt.example.at.caddy"
+printf '# edge-site add alt.example.at alt:8080\nalt.example.at {\n\timport tls_dns\n\tencode zstd gzip\n\treverse_proxy alt:8080\n}\n' > "$alt_site"
+TS_IP=100.64.0.5 SSH_CONNECTION="100.64.0.9 5000 100.64.0.5 22" lauf "$w" "$SETUP" >/dev/null
+awk '/import zugriffslog/{z=NR} /encode zstd gzip/{e=NR} END{exit !(z && z < e)}' "$alt_site"; behaupte "setup-server.sh: bestehende Site bekommt import zugriffslog vor encode" $?
+TS_IP=100.64.0.5 SSH_CONNECTION="100.64.0.9 5000 100.64.0.5 22" lauf "$w" "$SETUP" >/dev/null
+[ "$(grep -c "import zugriffslog" "$alt_site")" -eq 1 ]; behaupte "setup-server.sh: zweiter Lauf ergänzt nicht doppelt" $?
+rm -f "$alt_site"
+
 # --- geoblock: Länder, Ausnahmen, unplausible Listen, Aussperrschutz, fail-closed
 GB="$HERE/geoblock"
 bash -n "$GB"; behaupte "geoblock: Syntax" $?
 w="$(neue_welt geo)"
 gb_regeln="$w/var/lib/corevision/geoblock/regeln.nft"; gb_ausn="$w/etc/corevision/geoblock-ausnahmen"
-lauf "$w" "$GB" --help | grep -q "IP Geolocation by DB-IP"; behaupte "geoblock: --help nennt Aufruf und Quelle (CC BY 4.0)" $?
+lauf "$w" "$GB" --help | grep -q "delegated-ripencc-extended"; behaupte "geoblock: --help nennt Aufruf und Quelle (RIPE)" $?
 lauf "$w" "$GB" >/dev/null; [ $? -eq 1 ]; behaupte "geoblock: ohne Befehl endet mit 1" $?
 lauf "$w" "$GB" aktualisieren | grep -q "nicht eingerichtet"; behaupte "geoblock aktualisieren: vor einrichten abgelehnt" $?
 lauf "$w" "$GB" einrichten --laender A1 >/dev/null; [ $? -eq 1 ]; behaupte "geoblock: ungültiger Ländercode endet mit 1" $?
@@ -411,28 +593,64 @@ lauf "$w" "$GB" einrichten --dry-run >/dev/null
 out="$(lauf "$w" "$GB" einrichten --laender XX)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "Land XX kommt in der Länderliste nicht vor" \
     && [ ! -f "$w/etc/corevision/geoblock.conf" ] && ! grep -q "nft -f" "$w/zustand/log"; behaupte "geoblock: Land fehlt in der Liste → nichts geschrieben, nichts geladen" $?
-touch "$w/zustand/dbip-fehlt-$(date -u +%Y-%m)"
 out="$(lauf "$w" "$GB" einrichten --laender at,de)"; rc=$?
-[ $rc -eq 0 ] && grep -q "dbip-country-lite-$(date -u -d "$(date -u +%Y-%m-01) -1 month" +%Y-%m).csv.gz" "$w/zustand/log"; behaupte "geoblock: Datei des Monats fehlt → die des Vormonats" $?
+[ $rc -eq 0 ] && grep -q "ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest" "$w/zustand/log" \
+    && grep -q "^QUELLE=RIPE 20260930$" "$w/var/lib/corevision/geoblock/stand"; behaupte "geoblock: Liste von RIPE (https), Stand aus der Versionszeile" $?
 grep -q "^LAENDER=AT,DE$" "$w/etc/corevision/geoblock.conf" && printf '%s' "$out" | grep -q "Abweichung vom Standard" \
     && ! grep -q "203.0.113.192" "$gb_regeln"; behaupte "geoblock --laender at,de: nur AT und DE, Abweichung gemeldet" $?
 lauf "$w" "$GB" einrichten --laender AT,CH,LI,DE >/dev/null
 : > "$w/zustand/log"
 out="$(lauf "$w" "$GB" einrichten)"; rc=$?
 [ $rc -eq 0 ] && ! printf '%s' "$out" | grep -q "   mache " && ! grep -q "nft -f" "$w/zustand/log"; behaupte "geoblock einrichten: zweiter Lauf ändert und lädt nichts" $?
-w2="$(neue_welt geo-ohne-liste)"; rm "$w2/zustand/dbip.csv.gz"
+w2="$(neue_welt geo-ohne-liste)"; rm "$w2/zustand/ripe.txt"
+mkdir -p "$w2/var/lib/corevision/geoblock"; : > "$w2/var/lib/corevision/geoblock/dbip-country-lite.csv.gz"
 out="$(lauf "$w2" "$GB" einrichten)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "nicht abrufbar" && [ ! -f "$w2/etc/corevision/geoblock.conf" ]; behaupte "geoblock: keine Länderliste erreichbar → nichts eingerichtet, Exit ≠ 0" $?
+[ -e "$w2/var/lib/corevision/geoblock/dbip-country-lite.csv.gz" ]; behaupte "geoblock: RIPE nicht erreichbar → alte db-ip-Datei bleibt (für die alte Kopie)" $?
+
+# Admin-IPs je Server (Tresor): immer erlaubt, auch in der gesperrten Fassung, zählen für den Aussperrschutz
+out="$(lauf "$w" "$GB" einrichten --admin-ips "192.0.2.77, 2001:db8:c::1")"; rc=$?
+[ $rc -eq 0 ] && grep -q "^ADMIN_IPS=192.0.2.77,2001:db8:c::1$" "$w/etc/corevision/geoblock.conf" \
+    && set_von "$w/zustand/nft-geladen" admin4 | grep -q "192.0.2.77" && set_von "$w/zustand/nft-geladen" admin6 | grep -q "2001:db8:c::1" \
+    && set_von "$w/var/lib/corevision/geoblock/gesperrt.nft" admin4 | grep -q "192.0.2.77"; behaupte "geoblock --admin-ips: gespeichert, geladen und in der gesperrten Fassung" $?
+grep -q "^Admin-IPs: keine → 192.0.2.77,2001:db8:c::1 (root)$" "$w/zustand/journal"; behaupte "geoblock --admin-ips: Änderung im Journal" $?
+lauf "$w" "$GB" einrichten >/dev/null; grep -q "^ADMIN_IPS=192.0.2.77,2001:db8:c::1$" "$w/etc/corevision/geoblock.conf"; behaupte "geoblock einrichten ohne --admin-ips: gespeicherte bleiben" $?
+lauf "$w" "$GB" einrichten --admin-ips 0.0.0.0/0 >/dev/null; [ $? -eq 1 ] && grep -q "^ADMIN_IPS=192.0.2.77" "$w/etc/corevision/geoblock.conf"; behaupte "geoblock --admin-ips 0.0.0.0/0: abgelehnt (IPv4 ab /16), nichts geändert" $?
+lauf "$w" "$GB" einrichten --admin-ips 2a01:4f8:c17:1234/64 >/dev/null; [ $? -eq 1 ] && lauf "$w" "$GB" einrichten --admin-ips 010.1.2.3 >/dev/null; [ $? -eq 1 ] \
+    && grep -q "^ADMIN_IPS=192.0.2.77,2001:db8:c::1$" "$w/etc/corevision/geoblock.conf"; behaupte "geoblock --admin-ips: IPv6 ohne :: mit 4 Gruppen und IPv4 mit führender Null abgelehnt (nft läse sie anders)" $?
+# Lehnt erst nft die Admin-IP ab, bleibt die gesperrte Fassung ohne sie gültig — sonst wäre der Start offen
+cp "$w/var/lib/corevision/geoblock/gesperrt.nft" "$tmp/gesperrt-vorher"; echo 192.0.2.99 > "$w/zustand/nft-ablehnen"
+out="$(lauf "$w" "$GB" einrichten --admin-ips 192.0.2.99)"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "gilt ohne Admin-IPs" && ! grep -q "192.0.2.99" "$w/var/lib/corevision/geoblock/gesperrt.nft" \
+    && grep -q "^ADMIN_IPS=192.0.2.77,2001:db8:c::1$" "$w/etc/corevision/geoblock.conf" \
+    && cmp -s "$w/var/lib/corevision/geoblock/gesperrt.nft" "$tmp/gesperrt-vorher"
+behaupte "geoblock --admin-ips, die nft ablehnt: nichts geladen, Konfiguration und gesperrte Fassung wie vorher" $?
+rm "$w/zustand/nft-ablehnen"
+lauf "$w" "$GB" einrichten --admin-ips $'192.0.2.77\n2001:db8:c::1\t192.0.2.78\r\n' >/dev/null
+grep -q "^ADMIN_IPS=192.0.2.77,2001:db8:c::1,192.0.2.78$" "$w/etc/corevision/geoblock.conf" && [ "$(grep -vc '^#' "$w/etc/corevision/geoblock.conf")" -eq 2 ]
+behaupte "geoblock --admin-ips: Zeilenumbruch und Tab trennen wie Kommas (Notizfeld des Tresors)" $?
+lauf "$w" "$GB" einrichten --admin-ips "" >/dev/null; grep -q "^ADMIN_IPS=$" "$w/etc/corevision/geoblock.conf" && ! set_von "$w/zustand/nft-geladen" admin4 | grep -q elements; behaupte "geoblock --admin-ips \"\": Liste geleert" $?
+
+# Nach einem Update des Standards: Neue Regeln kommen auch ohne Änderung an der Konfiguration an
+grep -v "udp dport 41641 accept" "$gb_regeln" > "$tmp/alt.nft"; cp "$tmp/alt.nft" "$gb_regeln"; cp "$tmp/alt.nft" "$w/zustand/nft-geladen"
+: > "$w/zustand/log"; lauf "$w" "$GB" einrichten >/dev/null
+grep -q "nft -f" "$w/zustand/log" && grep -q "udp dport 41641 accept" "$w/zustand/nft-geladen"; behaupte "geoblock einrichten: geänderte Regeln nach einem Update werden geladen" $?
+# Wechsel von db-ip (bis 1.7.1): alte Datei weg, alter Stand hält die neue Liste nicht auf
+DG="$w/var/lib/corevision/geoblock"; : > "$DG/dbip-country-lite.csv.gz"; cp "$DG/stand" "$tmp/stand-ripe"
+printf 'LAENDER=AT,CH,LI,DE\nANZAHL4=26989\nANZAHL6=29135\nADRESSEN4=176772827\nNETZE6=490365\n' > "$DG/stand"
+lauf "$w" "$GB" aktualisieren >/dev/null; rc=$?
+[ $rc -eq 0 ] && grep -q "^LISTE=ripe$" "$DG/stand"; behaupte "geoblock aktualisieren: Stand von db-ip hält die RIPE-Liste nicht auf" $?
+lauf "$w" "$GB" einrichten >/dev/null; [ ! -e "$DG/dbip-country-lite.csv.gz" ]; behaupte "geoblock einrichten: alte db-ip-Datei aufgeräumt" $?
 
 # Unplausible Listen: Die geladene Sperre bleibt
-cp "$w/zustand/nft-geladen" "$tmp/geladen-vorher"; cp "$w/zustand/dbip.csv.gz" "$tmp/dbip-gut"
-head -c 60 "$tmp/dbip-gut" > "$w/zustand/dbip.csv.gz"
+cp "$w/zustand/nft-geladen" "$tmp/geladen-vorher"
+head -c 300 "$tmp/ripe.txt" > "$w/zustand/ripe.txt"
 out="$(lauf "$w" "$GB" aktualisieren)"; rc=$?
-[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "beschädigt" && cmp -s "$w/zustand/nft-geladen" "$tmp/geladen-vorher"; behaupte "geoblock aktualisieren: beschädigte Liste abgelehnt, geladene bleibt" $?
-gzip -dc "$tmp/dbip-gut" | grep -v ",LI$" | gzip > "$w/zustand/dbip.csv.gz"
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "abgeschnitten" && cmp -s "$w/zustand/nft-geladen" "$tmp/geladen-vorher"; behaupte "geoblock aktualisieren: abgeschnittene Liste (Summenzeilen) abgelehnt, geladene bleibt" $?
+sed 's/^\(ripencc|LI|ipv4|.*\)|allocated|x$/\1|available|x/' "$tmp/ripe-eintraege" | ripe_liste > "$w/zustand/ripe.txt"
 out="$(lauf "$w" "$GB" aktualisieren)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "Land LI kommt" && cmp -s "$w/zustand/nft-geladen" "$tmp/geladen-vorher"; behaupte "geoblock aktualisieren: Land fehlt → abgelehnt, geladene bleibt" $?
-cp "$tmp/dbip-gut" "$w/zustand/dbip.csv.gz"; stand="$w/var/lib/corevision/geoblock/stand"; cp "$stand" "$tmp/stand-gut"
+cp "$tmp/ripe.txt" "$w/zustand/ripe.txt"; stand="$w/var/lib/corevision/geoblock/stand"; cp "$stand" "$tmp/stand-gut"
 sed 's/^ANZAHL4=.*/ANZAHL4=100/' "$tmp/stand-gut" > "$stand"
 out="$(lauf "$w" "$GB" aktualisieren)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "nur 5 Bereiche statt bisher 101"; behaupte "geoblock aktualisieren: weniger als die Hälfte der Bereiche → abgelehnt" $?
@@ -444,20 +662,19 @@ out="$(lauf "$w" "$GB" aktualisieren)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "225 IPv4-Adressen statt bisher 10"; behaupte "geoblock aktualisieren: IPv4-Abdeckung wächst um mehr als die Hälfte → abgelehnt" $?
 cp "$tmp/stand-gut" "$stand"
 # Was aus dem Netz kommt, landet als root in der Firewall: keine fremde nft-Syntax, keine Welt-Bereiche
-{ gzip -dc "$tmp/dbip-gut"; printf '%s\n' '9.9.9.9 } } flush ruleset ; table inet x { set y { type ipv4_addr; elements = { 9.9.9.9,9.9.9.10,AT'; } | gzip > "$w/zustand/dbip.csv.gz"
+{ cat "$tmp/ripe-eintraege"; printf '%s\n' 'ripencc|AT|ipv4|9.9.9.9 } } flush ruleset ; table inet x { set y {|256|20000101|allocated|x'; } | ripe_liste > "$w/zustand/ripe.txt"
 out="$(lauf "$w" "$GB" aktualisieren)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "fehlerhafte Zeilen" && cmp -s "$w/zustand/nft-geladen" "$tmp/geladen-vorher"; behaupte "geoblock aktualisieren: nft-Syntax in der Liste → ganze Liste abgelehnt" $?
-{ gzip -dc "$tmp/dbip-gut"; printf '%s\n' '0.0.0.0,255.255.255.255,AT'; } | gzip > "$w/zustand/dbip.csv.gz"
+{ cat "$tmp/ripe-eintraege"; printf '%s\n' 'ripencc|AT|ipv4|0.0.0.0|33554432|20000101|allocated|x'; } | ripe_liste > "$w/zustand/ripe.txt"
 out="$(lauf "$w" "$GB" aktualisieren)"; rc=$?
-[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "fehlerhafte Zeilen"; behaupte "geoblock aktualisieren: Bereich größer als /8 → ganze Liste abgelehnt" $?
-# awk läse „3e3“ als Zahl 3000 — der Block wird hexadezimal verglichen, der Bereich verworfen
-{ gzip -dc "$tmp/dbip-gut"; printf '%s\n' '3e3::,3000:ffff:ffff:ffff:ffff:ffff:ffff:ffff,AT'; } | gzip > "$w/zustand/dbip.csv.gz"
-lauf "$w" "$GB" aktualisieren >/dev/null; rc=$?
-[ $rc -eq 0 ] && ! grep -qi "3e3::" "$w/zustand/nft-geladen"; behaupte "geoblock aktualisieren: IPv6-Bereich über mehrere Blöcke (3e3:: bis 3000::) verworfen" $?
-{ gzip -dc "$tmp/dbip-gut"; printf '%s\n' '2001:1000::,2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff,AT'; } | gzip > "$w/zustand/dbip.csv.gz"
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "fehlerhafte Zeilen"; behaupte "geoblock aktualisieren: Eintrag größer als /8 → ganze Liste abgelehnt" $?
+{ cat "$tmp/ripe-eintraege"; printf '%s\n' 'ripencc|AT|ipv6|2000::|3|20000101|allocated|x'; } | ripe_liste > "$w/zustand/ripe.txt"
+out="$(lauf "$w" "$GB" aktualisieren)"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "fehlerhafte Zeilen"; behaupte "geoblock aktualisieren: IPv6-Präfix kürzer als /16 → ganze Liste abgelehnt" $?
+{ cat "$tmp/ripe-eintraege"; printf '%s\n' 'ripencc|AT|ipv6|2001:1000::|20|20000101|allocated|x'; } | ripe_liste > "$w/zustand/ripe.txt"
 out="$(lauf "$w" "$GB" aktualisieren)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "IPv6-/32-Blöcke statt bisher 1"; behaupte "geoblock aktualisieren: IPv6-Abdeckung wächst um mehr als die Hälfte → abgelehnt" $?
-cp "$tmp/dbip-gut" "$w/zustand/dbip.csv.gz"
+cp "$tmp/ripe.txt" "$w/zustand/ripe.txt"
 # Ohne SSH_CONNECTION (systemd-Timer): kein Abbruch an set -u
 : > "$w/zustand/log"
 out="$(env -i PATH="$tmp/bin:$S" SERVER_WURZEL="$w" ZUSTAND="$w/zustand" "$BASH_BIN" "$GB" aktualisieren 2>&1)"; rc=$?
@@ -521,6 +738,11 @@ rm "$w/zustand/who"
 cp "$w/etc/corevision/geoblock.conf" "$tmp/konf-vorher"
 out="$(SSH_CONNECTION="198.51.100.7 5000 203.0.113.10 22" lauf "$w" "$GB" einrichten --laender AT,DE)"; rc=$?
 [ $rc -ne 0 ] && cmp -s "$w/etc/corevision/geoblock.conf" "$tmp/konf-vorher" && [ ! -f "$w/etc/corevision/geoblock.conf.alt" ]; behaupte "Aussperrschutz in einrichten: auch die Länder-Konfiguration zurückgerollt" $?
+# Eine Admin-IP hält den Weg offen: Kommt die Sitzung von ihr, rollt nichts zurück.
+lauf "$w" "$GB" einrichten --admin-ips 198.51.100.7 >/dev/null
+out="$(SSH_CONNECTION="198.51.100.7 5000 203.0.113.10 22" lauf "$w" "$GB" erlauben 192.0.2.0/24 --grund x)"; rc=$?
+[ $rc -eq 0 ] && ! printf '%s' "$out" | grep -q "zurückgerollt"; behaupte "Aussperrschutz: Sitzung von einer Admin-IP bleibt offen, nichts zurückgerollt" $?
+lauf "$w" "$GB" entfernen 192.0.2.0/24 >/dev/null; lauf "$w" "$GB" einrichten --admin-ips "" >/dev/null
 rm "$w/zustand/nft-fremd"
 
 # Start ohne gespeicherte Regeln: fail-closed; check meldet es, aktualisieren behebt es
@@ -528,6 +750,16 @@ rm "$gb_regeln"
 out="$(lauf "$w" "$GB" laden)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "alles Öffentliche ist gesperrt" && grep -q 'iifname { "lo", "tailscale0" } accept' "$w/zustand/nft-geladen" \
     && ! grep -q "elements" "$w/zustand/nft-geladen"; behaupte "geoblock laden ohne Regeln: keine Länder, Tailnet frei, Exit ≠ 0 (fail-closed)" $?
+sed -i 's|^ADMIN_IPS=.*|ADMIN_IPS=0.0.0.0/0|' "$w/etc/corevision/geoblock.conf"
+out="$(lauf "$w" "$GB" laden)"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "OHNE Admin-IPs geladen" && grep -q 'iifname { "lo", "tailscale0" } accept' "$w/zustand/nft-geladen" \
+    && ! set_von "$w/zustand/nft-geladen" admin4 | grep -q elements; behaupte "geoblock laden mit verdorbener Admin-Liste: gesperrte Fassung ohne Admin-IPs, gemeldet" $?
+sed -i 's|^ADMIN_IPS=.*|ADMIN_IPS=192.0.2.99|' "$w/etc/corevision/geoblock.conf"; echo 192.0.2.99 > "$w/zustand/nft-ablehnen"
+out="$(lauf "$w" "$GB" laden)"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "OHNE Admin-IPs geladen" && ! grep -q "192.0.2.99" "$w/zustand/nft-geladen" \
+    && grep -q 'iifname { "lo", "tailscale0" } accept' "$w/zustand/nft-geladen"; behaupte "geoblock laden, wenn erst nft die Admin-IP ablehnt: gesperrte Fassung ohne sie, nicht offen" $?
+rm "$w/zustand/nft-ablehnen"
+sed -i 's|^ADMIN_IPS=.*|ADMIN_IPS=|' "$w/etc/corevision/geoblock.conf"
 echo 198.51.100.7 > "$w/zustand/nft-fremd"
 SSH_CONNECTION="198.51.100.7 5000 203.0.113.10 22" lauf "$w" "$GB" aktualisieren >/dev/null; rc=$?
 [ $rc -ne 0 ] && cmp -s "$w/var/lib/corevision/geoblock/gesperrt.nft" "$w/zustand/nft-geladen"; behaupte "Aussperrschutz bei gesperrter Tabelle: zurück auf die gesperrte Fassung, nicht offen" $?
@@ -535,6 +767,13 @@ rm "$w/zustand/nft-fremd"
 out="$(lauf "$w" "$GB" check)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "keine gültige Länderliste" && printf '%s' "$out" | grep -q "ohne Länder geladen"; behaupte "geoblock check: ohne gespeicherte Regeln rot, gesperrte Tabelle erkannt" $?
 lauf "$w" "$GB" aktualisieren >/dev/null; lauf "$w" "$GB" check >/dev/null; behaupte "geoblock aktualisieren behebt es, check grün" $?
+# Nach einem Update von 1.7 fehlt die RIPE-Liste, bis einrichten sie holt: nie still ohne Länder laden
+roh="$w/var/lib/corevision/geoblock/delegated-ripencc-extended"; mv "$roh" "$tmp/ripe-roh"; cp "$w/zustand/nft-geladen" "$tmp/geladen-vorher"
+out="$(lauf "$w" "$GB" erlauben 192.0.2.0/24 --grund x)"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "Länderliste fehlt" && cmp -s "$w/zustand/nft-geladen" "$tmp/geladen-vorher" \
+    && ! grep -q "192.0.2.0/24" "$gb_ausn"; behaupte "geoblock: Länderliste fehlt → nichts geladen statt einer Sperre ohne Länder" $?
+lauf "$w" "$GB" check | grep -q "Länderliste fehlt"; behaupte "geoblock check: fehlende Länderliste gemeldet" $?
+mv "$tmp/ripe-roh" "$roh"
 touch "$w/zustand/an-nftables.service"
 lauf "$w" "$GB" check | grep -q "nftables.service ist eingeschaltet"; behaupte "geoblock check: eingeschaltetes nftables.service → rot (flush ruleset)" $?
 rm "$w/zustand/an-nftables.service"
@@ -549,12 +788,12 @@ touch "$w/zustand/gescheitert-corevision-geoblock.service"
 out="$(lauf "$w" "$GB" check)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "FEHLT   corevision-geoblock.service ist beim Start gescheitert"; behaupte "geoblock check: gescheiterter Start-Dienst → rot" $?
 rm "$w/zustand/gescheitert-corevision-geoblock.service"
-touch -d '50 days ago' "$w/var/lib/corevision/geoblock/dbip-country-lite.csv.gz"
+touch -d '50 days ago' "$w/var/lib/corevision/geoblock/delegated-ripencc-extended"
 out="$(lauf "$w" "$GB" check)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "FEHLT   Länderliste 50 Tage alt"; behaupte "geoblock check: Liste älter als 45 Tage → rot" $?
 
 # Prod ohne Geoblocking: Der Edge geht nicht ans Netz
-w="$(neue_welt prod-ohne-geo)"; rm "$w/zustand/dbip.csv.gz"
+w="$(neue_welt prod-ohne-geo)"; rm "$w/zustand/ripe.txt"
 out="$(TS_IP=100.64.0.6 SSH_CONNECTION="100.64.0.9 5000 100.64.0.6 22" DNS_API_TOKEN=cf lauf "$w" "$SETUP" --rolle prod --dns cloudflare --email admin@example.at)"; rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "Edge startet auf Prod erst" && ! grep -q "up -d --build" "$w/zustand/log"; behaupte "Prod: ohne Geoblocking startet der Edge nicht, Exit ≠ 0" $?
 

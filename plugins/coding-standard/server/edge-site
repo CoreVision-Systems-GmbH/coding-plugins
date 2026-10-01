@@ -173,6 +173,10 @@ case "$befehl" in
         [[ "$2" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*:[0-9]{1,5}$ ]] || abbruch "Ziel als <container>:<port>, z. B. app-app:8080"
         fqdn="$(voller_name "$1")"; ziel="$2"
         [ -n "$ZIEL_IP" ] || abbruch "ZIEL_IP fehlt in $KONF — setup-server.sh mit --ip erneut starten."
+        # Die Site importiert den Baustein; nach `git pull` fehlt er, bis setup-server.sh wieder lief —
+        # sonst lehnte Caddy die Site ab, ohne den Grund zu nennen.
+        grep -q '^(zugriffslog) {$' "$EDGE/caddy/Caddyfile" 2>/dev/null \
+            || abbruch "Der Caddyfile fehlt der Baustein zugriffslog (Standard aktualisiert?) — erst setup-server.sh erneut starten (EINRICHTUNG.md B.6)."
         case "$DNS" in
             hetzner|cloudflare)
                 [ -n "$TOKEN" ] || abbruch "DNS-Token fehlt in $EDGE/.env — setup-server.sh erneut starten."
@@ -193,7 +197,8 @@ case "$befehl" in
             if kopfzeilen_an "$datei"; then kopf=an; csp="$(kopfzeilen_csp "$datei")"; fi
         fi
         mkdir -p "$SITES"
-        printf '# edge-site add %s %s\n%s {\n%s\n\tencode zstd gzip\n\treverse_proxy %s\n}\n' \
+        # import zugriffslog: JSON-Zugriffsprotokoll für CrowdSec (Baustein in der Caddyfile, ADR 0009)
+        printf '# edge-site add %s %s\n%s {\n%s\n\timport zugriffslog\n\tencode zstd gzip\n\treverse_proxy %s\n}\n' \
             "$1" "$ziel" "$fqdn" "$tls" "$ziel" > "$datei"
         [ "$kopf" = aus ] || kopfzeilen_setzen "$datei" an "$csp"
         if ! neu_laden; then

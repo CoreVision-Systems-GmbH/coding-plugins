@@ -20,7 +20,8 @@ HTTP-/HTTPS-Anfragen annimmt und nach Hostname an die Anwendungen weiterreicht. 
 kommen von Let's Encrypt über **ACME DNS-01** — dafür muss ein Server nicht aus dem Internet
 erreichbar sein. Der Unterschied: Der Dev-Server ist nur im Tailnet erreichbar und hängt vor
 jede Adresse `dev.`; der Prod-Server ist öffentlich und bekommt Fassungen nur auf Auftrag. Beide
-haben **Geoblocking**: Von außen erreichen sie nur Adressen aus AT, CH, LI und DE (C.4).
+haben **Geoblocking**: Von außen erreichen sie nur Adressen aus AT, CH, LI und DE (C.4). Dazu
+kommt der **Server-Schutz**: Firewall, Fail2Ban und CrowdSec (C.5).
 
 | Teil | Für wen | Ergebnis |
 |---|---|---|
@@ -629,18 +630,22 @@ verdeckt ab — nie als Argument. Was es tut, jeweils nur, wenn es noch fehlt:
 3. **Tailscale** aus dem offiziellen apt-Repo ([Anleitung](https://tailscale.com/kb/1031/install-linux)).
 4. Kernel-Einstellung `net.ipv4.ip_nonlocal_bind = 1` — damit der Edge nach einem Neustart auch
    dann startet, wenn Tailscale später hochkommt.
-5. **Firewall (ufw):** alles zu, außer über `tailscale0`. SSH bleibt öffentlich offen, bis du über
-   das Tailnet verbunden bist — dann schließt ein erneuter Lauf es (kein Aussperren).
+5. **Firewall (ufw):** eingehend und weitergeleitet verworfen, ausgehend erlaubt, Logging `low`;
+   offen nur `tailscale0`. SSH bleibt öffentlich offen, bis du über das Tailnet verbunden bist —
+   dann schließt ein erneuter Lauf es (kein Aussperren).
 6. **Geoblocking** (C.4): Von außen erreichen den Server nur Adressen aus **AT, CH, LI und DE** —
    jeder Port, jedes Protokoll, auch die Ports des Edge, die Docker an ufw vorbei öffnet. Das
-   Tailnet bleibt frei. Weitere Länder mit `--laender AT,CH,LI,DE,IT` (braucht eine ADR im Projekt).
-7. `/etc/corevision/server.env` (Rolle, DNS-Weg, Kontakt, Ziel-IP) und **`/opt/edge/`** mit dem
+   Tailnet bleibt frei. Weitere Länder mit `--laender AT,CH,LI,DE,IT` (braucht eine ADR im Projekt),
+   Admin-IPs aus dem Tresor mit `--admin-ips a,b,…` (C.4).
+7. **Server-Schutz** (C.5): Fail2Ban, CrowdSec mit Firewall-Bouncer und Konsole, Journal höchstens
+   90 Tage. Den Enroll-Key der CrowdSec-Konsole fragt das Skript verdeckt ab.
+8. `/etc/corevision/server.env` (Rolle, DNS-Weg, Kontakt, Ziel-IP) und **`/opt/edge/`** mit dem
    Edge-Caddy: gebaut aus `server/edge/Dockerfile` (Caddy mit den DNS-Modulen, gepinnt), gestartet
    im Netz `edge`, **gebunden nur an die Tailscale-IP** — Docker umgeht ufw für veröffentlichte
-   Ports, deshalb schützt allein die Bindung.
-8. Befehle `edge-site`, `rollout` und `geoblock` unter `/usr/local/bin`; sudo-Regel, damit
-   Mitglieder der Gruppe `docker` `edge-site` ohne Passwort aufrufen dürfen.
-9. Prüfung — wie `--check`.
+   Ports, deshalb schützt allein die Bindung. Zugriffsprotokolle nach `/var/log/caddy` (C.5).
+9. Befehle `edge-site`, `rollout`, `schutz` und `geoblock` unter `/usr/local/bin`; sudo-Regel,
+   damit Mitglieder der Gruppe `docker` `edge-site` ohne Passwort aufrufen dürfen.
+10. Prüfung — wie `--check`.
 
 **Handgriff:** `sudo tailscale up` (Link im Browser öffnen) und **mit dem GitHub-Konto dieses
 Servers** anmelden — so entsteht sein eigenes Tailnet mit ihm als einzigem Host. Teile ihn
@@ -723,7 +728,8 @@ sudo /opt/corevision/standard/plugins/coding-standard/server/setup-server.sh \
      --rolle prod --dns hetzner --email admin@<deine-domain>
 ```
 
-Unterschiede zu B.2: ufw öffnet 80/443 öffentlich; der Edge bindet an alle Adressen; die
+Unterschiede zu B.2: ufw öffnet 80/443 öffentlich, dazu 443/udp für HTTP/3; der Edge bindet an
+alle Adressen; die
 A-Records zeigen auf die öffentliche IPv4 (Standardroute, sonst `--ip <adresse>`). SSH nur über
 Tailscale, wie auf Dev. Geoblocking wie auf Dev: 80/443 erreichen nur Adressen aus AT, CH, LI und
 DE — öffentliche Websites brauchen für Suchmaschinen eine Ausnahme (C.4). Kontrolle mit `--check`.
@@ -764,13 +770,26 @@ Jede weitere Fassung kommt danach nur noch über `rollout` (Teil E).
 
 Gilt auf Dev- und Prod-Servern und auf jedem anderen Linux-Server mit Anwendungen der CoreVision.
 Von außen erreichbar ist der Server nur aus **AT, CH, LI und DE** — von jeder anderen Adresse kein
-Dienst, kein Protokoll, kein Port. Frei bleiben das Tailnet und Antworten auf Verbindungen, die der
-Server selbst aufbaut (Updates, GitHub, Let's Encrypt über DNS-01). Wer im Ausland arbeitet, kommt
-über das Tailnet.
+Dienst, kein Protokoll, kein Port. Frei bleiben:
+- das Tailnet, auch direkt über UDP 41641 — wer im Ausland arbeitet, kommt darüber;
+- private Netze (Docker, LAN);
+- die **Admin-IPs** dieses Servers;
+- Antworten auf Verbindungen, die der Server selbst aufbaut (Updates, GitHub, Let's Encrypt über
+  DNS-01).
 
 ```bash
-sudo geoblock liste      # Länder, Zahl der Bereiche, Ausnahmen mit Grund
+sudo geoblock liste      # Länder, Admin-IPs, Zahl der Bereiche, Ausnahmen mit Grund
 sudo geoblock check      # Exit 0: geladen, eingeschaltet, Liste aktuell
+```
+
+**Admin-IPs** sind die festen Adressen der Büros und Admins. Sie stehen im Tresor (Eintrag
+„CoreVision Admin-IPs“), nie im Repository, und kommen immer durch — auch wenn beim Start keine
+Liste da ist. Setzen, ändern oder leeren:
+
+```bash
+sudo /opt/corevision/standard/plugins/coding-standard/server/setup-server.sh --admin-ips 203.0.113.10,198.51.100.7
+sudo geoblock einrichten --admin-ips 203.0.113.10,198.51.100.7    # dasselbe nur für das Geoblocking
+sudo geoblock einrichten --admin-ips ""                           # keine Admin-IPs
 ```
 
 **Ausnahmen** — jede braucht eine ADR im Projekt der Anwendung; der Grund steht beim Eintrag:
@@ -804,11 +823,76 @@ bricht ab. Über das Tailnet verbinden oder die Adresse erlauben; `--force` übe
 - Ein Wächter prüft alle 5 Minuten, ob die Tabelle noch da ist (`corevision-geoblock-waechter.timer`).
   Ein `flush ruleset` löscht sie still, der Wächter lädt sie nach. `nftables.service` bleibt aus.
 
-**Liste:** db-ip „IP to Country Lite“ (IP Geolocation by [DB-IP](https://db-ip.com), CC BY 4.0),
-jeden Montag erneuert (`corevision-geoblock-aktualisieren.timer`). Eine unvollständige Liste wird
-nicht geladen, die alte bleibt; `geoblock check` meldet eine Liste, die älter als 45 Tage ist.
-Fehlt beim Start jede Liste, ist alles Öffentliche gesperrt und das Tailnet offen — beheben mit
+**Liste:** die Zuteilungsliste von RIPE (`delegated-ripencc-extended-latest`), jeden Sonntag gegen
+04:15 erneuert (`corevision-geoblock-aktualisieren.timer`). Eine abgeschnittene oder unplausible
+Liste wird nicht geladen, die alte bleibt; `geoblock check` meldet eine Liste, die älter als 45 Tage
+ist. Fehlt beim Start jede Liste, ist alles Öffentliche gesperrt und das Tailnet offen — beheben mit
 `sudo geoblock aktualisieren`.
+
+**Log:** Verworfene Pakete stehen gedrosselt (5 je Minute) mit `[GEOBLOCK]` im Kernel-Log
+(`journalctl -k | grep GEOBLOCK`). Es ist ein Sicherheitsprotokoll mit IP-Adressen und wird nach
+höchstens 90 Tagen gelöscht (Journal, C.5).
+
+## C.5 Server-Schutz: Firewall, Fail2Ban, CrowdSec
+
+Gilt wie das Geoblocking auf jedem Linux-Server mit Anwendungen der CoreVision. Die Werte kommen
+vom Server cvsx2 (ADR 0009). `setup-server.sh` richtet alles ein; allein:
+
+```bash
+sudo schutz einrichten   # Fail2Ban, CrowdSec, Protokollfristen — nur was fehlt; --dry-run zeigt es vorher
+sudo schutz check        # Exit 0: vollständig; 2: nur die Konsole fehlt; 1: mehr
+```
+
+| Baustein | Was er tut |
+|---|---|
+| **ufw** | eingehend und weitergeleitet verwerfen, ausgehend erlauben; offen nur, was der Server braucht |
+| **Fail2Ban** `sshd` | 3 Fehlversuche in 15 Minuten → 15 Minuten gesperrt, jede Wiederholung ×4, höchstens eine Woche |
+| **Fail2Ban** `recidive` | 5 Sperren an einem Tag → eine Woche, alle Ports (auch die von Docker) |
+| **CrowdSec** | erkennt Angriffe in `auth.log`, `syslog`, `kern.log` und im Zugriffsprotokoll des Edge (Collections `linux`, `sshd`, `caddy`, `base-http-scenarios`, `http-cve`, `whitelist-good-actors`) und sperrt 4 Stunden per nftables; bezieht die Community-Blockliste |
+| **Protokolle** | Journal und Protokoll von CrowdSec höchstens 90 Tage |
+
+**Nie gesperrt** werden das Tailnet und private Netze (Docker, LAN) — sonst sperrte ein Tippfehler
+bei SSH oder eine Entwicklungssitzung auf Dev das eigene Team aus (ADR 0009). Die **Admin-IPs** aus
+C.4 sperren weder Fail2Ban noch CrowdSec — auch nicht über die
+Community-Blockliste (Allowlist `corevision-admin`). Nach einer Änderung der Admin-IPs
+`sudo schutz einrichten` erneut starten; `schutz check` meldet, wenn das fehlt.
+
+**Konsole:** Die Server melden sich mit dem Enroll-Key der Firma an der CrowdSec-Konsole an
+([app.crowdsec.net](https://app.crowdsec.net)); dort siehst du Warnungen aller Server. Den Key
+erzeugst du einmal unter *Security Engines → Enroll* und legst ihn als `crowdsec-enroll-corevision`
+in den Tresor. `schutz einrichten` fragt ihn am Terminal verdeckt ab; jede neue Anmeldung bestätigst
+du in der Konsole. Bis dahin endet `setup-server.sh --check` mit ≠ 0 und nennt den Handgriff,
+Erkennung und Blockliste laufen trotzdem. Eine Anmeldung neu anfragen (etwa nach einer Ablehnung):
+`sudo rm /etc/crowdsec/corevision-enroll-angefragt`, dann `sudo schutz einrichten`.
+
+**Zugriffsprotokolle des Edge:** JSON nach `/var/log/caddy/access.log`, 50 MiB je Datei, fünf
+Dateien, höchstens 90 Tage (logrotate wöchentlich, tmpfiles). Sie enthalten die Adresse, weil
+CrowdSec sie braucht, aber keine Token, Schlüssel und E-Mails aus Links (Passwort zurücksetzen,
+signierte Links; Laravel, Symfony, Django, WordPress) — Caddy ersetzt sie durch `ENTFERNT`, auch im
+Referer und in Weiterleitungen (ADR 0009). Sites aus der Zeit vor 1.8.0 bekommen
+`import zugriffslog` beim nächsten Lauf von `setup-server.sh`; bis dahin bricht `edge-site add` mit
+einem Hinweis ab. Der Edge-Container wird dabei neu erstellt (HTTP/3, Protokollordner) — alle Sites
+sind kurz nicht erreichbar.
+
+**Nachsehen:**
+
+```bash
+sudo fail2ban-client status sshd                 # gesperrte Adressen
+sudo cscli decisions list                        # Sperren von CrowdSec
+sudo cscli alerts list                           # erkannte Angriffe
+sudo cscli decisions delete --ip 203.0.113.5     # eine Sperre von CrowdSec aufheben
+sudo fail2ban-client unban 203.0.113.5           # Sperren von Fail2Ban aufheben (alle Jails)
+```
+
+**Andere Linux-Server** (Debian, Ubuntu): nach dem Geoblocking (C.4)
+`sudo /opt/corevision/standard/plugins/coding-standard/server/schutz einrichten` (dort gibt es
+keinen Befehl `schutz` unter `/usr/local/bin`; auch `check` mit vollem Pfad). ufw setzt dort der
+Betreiber: `default deny incoming`, `default deny routed`, `default allow outgoing`, dann die Ports
+des Servers — SSH vorher über das Tailnet, sonst sperrst du dich aus. Leitet der Server nichts
+weiter (kein Docker), zeigt ufw `disabled (routed)`; das gilt als erfüllt.
+
+**Nicht enthalten:** SSH-Härtung (Schlüssel, Root-Login) und Login-Jails einzelner Anwendungen —
+die legt das Projekt an.
 
 ---
 
@@ -926,6 +1010,9 @@ sudo rollout liste; sudo rollout absagen <id>        # offene Termine entfernen
 sudo systemctl disable --now corevision-geoblock.service corevision-geoblock-aktualisieren.timer \
      corevision-geoblock-waechter.timer
 sudo nft delete table inet corevision_geoblock
+# Server-Schutz aus — ebenso nur zur Fehlersuche:
+sudo systemctl disable --now crowdsec crowdsec-firewall-bouncer crowdsec-hubupdate.timer fail2ban
+sudo ufw delete allow 443/udp                         # HTTP/3 (Prod)
 ```
 
 `setup-server.sh` löscht nichts. Pakete mit `sudo apt remove`, Zertifikate liegen unter

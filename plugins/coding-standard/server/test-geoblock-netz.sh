@@ -5,7 +5,7 @@
 #
 # Aufruf:   sudo bash plugins/coding-standard/server/test-geoblock-netz.sh
 # Ergebnis: Exit 0, wenn alle Fälle grün sind, sonst Exit 1.
-# Braucht:  Linux, root, nft, ip, docker, python3, curl, ping, gzip — die CI (tests.yml).
+# Braucht:  Linux, root, nft, ip, docker, python3, curl, ping — die CI (tests.yml).
 #
 # Aufbau: ein Netz-Namespace „geo-client“ hängt über veth am Host und schickt mit zwei Quellen —
 # 203.0.113.10 und 2001:db8:a::10 stehen in der Probeliste als AT, 198.51.100.10 und
@@ -32,7 +32,7 @@ fehler=0
 behaupte() { if [ "$2" -eq 0 ]; then echo "ok     $1"; else echo "FEHLER $1"; fehler=$((fehler + 1)); fi; }
 
 [ "$(id -u)" -eq 0 ] || { echo "FEHLER braucht root (sudo)"; exit 1; }
-for w in nft ip docker python3 curl ping gzip; do
+for w in nft ip docker python3 curl ping; do
     command -v "$w" >/dev/null 2>&1 || { echo "FEHLER Werkzeug fehlt: $w"; exit 1; }
 done
 if nft list table inet "$TABELLE" >/dev/null 2>&1; then
@@ -48,6 +48,8 @@ aufraeumen() {
     ip netns del "$NS" 2>/dev/null
     ip link del veth-h 2>/dev/null; ip link del tailscale0 2>/dev/null
     ip route del 203.0.113.10/32 2>/dev/null; ip route del 198.51.100.10/32 2>/dev/null
+    ip route del 198.51.100.20/32 2>/dev/null
+    [ -n "${udp_pid:-}" ] && kill "$udp_pid" 2>/dev/null
     ip route del 100.100.1.3/32 2>/dev/null
     rm -rf "$tmp"
 }
@@ -55,17 +57,21 @@ trap aufraeumen EXIT
 
 gb() { SERVER_WURZEL="$W" SSH_CONNECTION="${SSH_CONNECTION:-}" bash "$G" "$@"; }
 
-# --- Probeliste und Konfiguration (wie nach `geoblock einrichten --laender AT,DE`)
+# --- Probeliste im Format von RIPE (Versionszeile, Summenzeilen, Einträge) und Konfiguration wie
+#     nach `geoblock einrichten --laender AT,DE --admin-ips 198.51.100.20`
 mkdir -p "$W/etc/corevision" "$W/var/lib/corevision/geoblock"
 printf '%s\n' \
-    '0.0.0.0,0.255.255.255,ZZ' \
-    '192.0.2.0,192.0.2.255,US' \
-    '198.51.100.0,198.51.100.255,US' \
-    '203.0.113.0,203.0.113.127,AT' \
-    '203.0.113.200,203.0.113.200,DE' \
-    '2001:db8:a::,2001:db8:a:ffff:ffff:ffff:ffff:ffff,AT' \
-    '2001:db8:f::,2001:db8:f:ffff:ffff:ffff:ffff:ffff,US' | gzip > "$tmp/probe.csv.gz"
-printf 'LAENDER=AT,DE\n' > "$W/etc/corevision/geoblock.conf"
+    'ripencc|US|ipv4|192.0.2.0|256|20000101|allocated|x' \
+    'ripencc|US|ipv4|198.51.100.0|256|20000101|allocated|x' \
+    'ripencc|AT|ipv4|203.0.113.0|128|20000101|allocated|x' \
+    'ripencc|DE|ipv4|203.0.113.200|1|20000101|assigned|x' \
+    'ripencc|AT|ipv6|2001:db8:a::|48|20000101|allocated|x' \
+    'ripencc|US|ipv6|2001:db8:f::|48|20000101|allocated|x' \
+    | awk -F'|' '{ z[$3]++; zeile[NR] = $0 }
+        END { printf "2|ripencc|1|%d|19700101|20260930|+0200\n", NR
+              printf "ripencc|*|ipv4|*|%d|summary\nripencc|*|ipv6|*|%d|summary\n", z["ipv4"], z["ipv6"]
+              for (i = 1; i <= NR; i++) print zeile[i] }' > "$tmp/probe.txt"
+printf 'LAENDER=AT,DE\nADMIN_IPS=198.51.100.20\n' > "$W/etc/corevision/geoblock.conf"
 : > "$W/etc/corevision/geoblock-ausnahmen"
 
 # --- Netz: Client-Namespace über veth-h, „Tailnet“ über tailscale0
@@ -84,6 +90,7 @@ ip netns exec "$NS" sh -eu -c '
     ip addr add 192.0.2.2/24 dev veth-c
     ip addr add 203.0.113.10/32 dev veth-c
     ip addr add 198.51.100.10/32 dev veth-c
+    ip addr add 198.51.100.20/32 dev veth-c
     ip addr add 100.64.0.2/24 dev ts-c
     ip -6 addr add 2001:db8:1::2/64 dev veth-c nodad
     ip -6 addr add 2001:db8:a::10/128 dev veth-c nodad
@@ -92,6 +99,7 @@ ip netns exec "$NS" sh -eu -c '
     ip -6 route add default via 2001:db8:1::1'
 ip route add 203.0.113.10/32 via 192.0.2.2
 ip route add 198.51.100.10/32 via 192.0.2.2
+ip route add 198.51.100.20/32 via 192.0.2.2
 ip -6 route add 2001:db8:a::10/128 via 2001:db8:1::2
 ip -6 route add 2001:db8:f::10/128 via 2001:db8:1::2
 
@@ -100,6 +108,14 @@ mkdir -p "$tmp/www"; echo ok > "$tmp/www/index.html"
 python3 -m http.server 9000 --bind :: --directory "$tmp/www" >/dev/null 2>&1 &
 web_pid=$!
 docker run -d --name geo-probe -p 8080:8080 "$BILD" httpd -f -p 8080 -h /etc >/dev/null
+# UDP-Echo auf 41641 (Tailscale direkt) und 41642 (irgendein anderer UDP-Port)
+python3 -c 'import select, socket
+s = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(2)]
+s[0].bind(("192.0.2.1", 41641)); s[1].bind(("192.0.2.1", 41642))
+while True:
+    for x in select.select(s, [], [])[0]:
+        d, a = x.recvfrom(64); x.sendto(d, a)' >/dev/null 2>&1 &
+udp_pid=$!
 for _ in $(seq 1 30); do
     curl -s -o /dev/null --max-time 1 http://127.0.0.1:9000/ && curl -s -o /dev/null --max-time 1 http://127.0.0.1:8080/ && break
     sleep 1
@@ -112,6 +128,12 @@ erreicht() {
     [ -n "$code" ] && [ "$code" != 000 ]
 }
 pingt() { ip netns exec "$NS" ping -c 1 -W 2 -I "$1" "$2" >/dev/null 2>&1; }
+# udp_antwort <quelle> <port> [wartezeit] — 0, wenn das UDP-Echo auf dem Host antwortet
+udp_antwort() {
+    ip netns exec "$NS" python3 -c 'import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind((sys.argv[1], int(sys.argv[4]))); s.settimeout(float(sys.argv[3]))
+s.sendto(b"x", ("192.0.2.1", int(sys.argv[2]))); s.recv(16)' "$1" "$2" "${3:-2}" "${4:-0}" >/dev/null 2>&1
+}
 
 AT4=203.0.113.10; US4=198.51.100.10; AT6=2001:db8:a::10; US6=2001:db8:f::10
 HOST=http://192.0.2.1:9000/; DOCKER=http://192.0.2.1:8080/; HOST6='http://[2001:db8:1::1]:9000/'
@@ -122,11 +144,11 @@ ip netns exec "$NS" ip -6 addr add fd7a:115c:a1e0::5/128 dev veth-c nodad; ip -6
 TS4=100.100.1.3; TS6=fd7a:115c:a1e0::5
 
 # --- Gegenprobe ohne Sperre: Alle Quellen kommen an — sonst bewiese „gesperrt“ unten nichts.
-erreicht $US4 $HOST && erreicht $US4 $DOCKER && erreicht $US6 "$HOST6" && erreicht $AT4 $HOST     && erreicht $TS4 $HOST && erreicht $TS6 "$HOST6" && pingt $US4 192.0.2.1 && pingt $US6 2001:db8:1::1
+erreicht $US4 $HOST && erreicht $US4 $DOCKER && erreicht $US6 "$HOST6" && erreicht $AT4 $HOST     && erreicht $TS4 $HOST && erreicht $TS6 "$HOST6" && pingt $US4 192.0.2.1 && pingt $US6 2001:db8:1::1 && udp_antwort $US4 41642 && erreicht 198.51.100.20 $DOCKER
 behaupte "ohne Geoblocking: alle Quellen erreichen Host und Container, ping kommt an (Aufbau stimmt)" $?
 
 # --- Geoblocking laden
-out="$(gb aktualisieren --datei "$tmp/probe.csv.gz" 2>&1)"; rc=$?
+out="$(gb aktualisieren --datei "$tmp/probe.txt" 2>&1)"; rc=$?
 [ $rc -eq 0 ] && nft list table inet "$TABELLE" >/dev/null; behaupte "aktualisieren lädt die Tabelle in den Kernel" $?
 [ $rc -eq 0 ] || printf '%s\n' "$out" | sed 's/^/       /'
 
@@ -143,11 +165,25 @@ pingt $US6 2001:db8:1::1; [ $? -ne 0 ]; behaupte "US: ping (IPv6) kommt nicht an
 erreicht 100.64.0.2 http://100.64.0.1:9000/; behaupte "Tailnet (tailscale0) erreicht den Host" $?
 erreicht $TS4 $HOST; [ $? -ne 0 ]; behaupte "Tailnet-Adresse (IPv4) über die öffentliche Schnittstelle bleibt gesperrt" $?
 erreicht $TS6 "$HOST6"; [ $? -ne 0 ]; behaupte "IPv6-ULA (Tailnet-Netz) über die öffentliche Schnittstelle bleibt gesperrt" $?
+# Parameter von cvsx2: Admin-IP, Tailscale direkt (UDP 41641), gedrosseltes Log
+erreicht 198.51.100.20 $DOCKER && ! erreicht $US4 $DOCKER; behaupte "Admin-IP (US-Adresse aus der Konfiguration) erreicht den Docker-Port, andere US-Adressen nicht" $?
+udp_antwort $US4 41641; behaupte "US erreicht UDP 41641 (Tailscale direkt)" $?
+udp_antwort $US4 41642; [ $? -ne 0 ]; behaupte "US erreicht einen anderen UDP-Port nicht" $?
+udp_antwort $US4 41642 2 67; [ $? -ne 0 ]; behaupte "Quellport 67 (DHCP) öffnet keinen anderen Port als 68" $?
+# Neu laden setzt die Drossel zurück: Die Pakete der Fälle davor haben den Burst von 5 sonst schon
+# verbraucht, und ob in den Sekunden der Schleife eine Zeile entsteht, hinge am Zufall (CI-Lauf
+# 36759795749: 1 Zeile für 30 Pakete).
+gb laden >/dev/null 2>&1
+vorher="$(dmesg | grep -c '\[GEOBLOCK\]')"
+for _ in $(seq 1 30); do udp_antwort $US4 41642 0.1; done
+nachher="$(dmesg | grep -c '\[GEOBLOCK\]')"
+[ $((nachher - vorher)) -ge 3 ] && [ $((nachher - vorher)) -le 7 ]
+behaupte "Log: verworfene Pakete stehen mit [GEOBLOCK] im Kernel-Log, gedrosselt ($((nachher - vorher)) Zeilen für 30 Pakete)" $?
 curl -s -o /dev/null --max-time 15 https://api.github.com/zen; behaupte "ausgehend: Antworten aus dem Ausland kommen an (established)" $?
 docker run --rm "$BILD" nslookup github.com >/dev/null 2>&1; behaupte "ausgehend aus einem Container: DNS-Antworten kommen an" $?
 
 # --- Idempotent: zweimal laden, eine Tabelle
-gb aktualisieren --datei "$tmp/probe.csv.gz" >/dev/null 2>&1
+gb aktualisieren --datei "$tmp/probe.txt" >/dev/null 2>&1
 [ "$(nft list tables | grep -c "inet $TABELLE")" -eq 1 ]; behaupte "zweiter Lauf: genau eine Tabelle" $?
 
 # --- Ausnahmen: Netz erlauben öffnet, entfernen schließt wieder
@@ -158,19 +194,19 @@ erreicht $US4 $DOCKER; [ $? -ne 0 ]; behaupte "entfernen: US-Quelle wieder gespe
 
 # --- Aussperrschutz: eigene SSH-Sitzung aus einer gesperrten Quelle
 nft delete table inet "$TABELLE"; rm -f "$W/var/lib/corevision/geoblock/regeln.nft"
-SSH_CONNECTION="$US4 50000 192.0.2.1 22" gb aktualisieren --datei "$tmp/probe.csv.gz" >/dev/null 2>&1; rc=$?
+SSH_CONNECTION="$US4 50000 192.0.2.1 22" gb aktualisieren --datei "$tmp/probe.txt" >/dev/null 2>&1; rc=$?
 [ $rc -ne 0 ] && ! nft list table inet "$TABELLE" >/dev/null 2>&1; behaupte "Aussperrschutz: Sitzung aus US → zurückgerollt, keine Tabelle" $?
-SSH_CONNECTION="$AT4 50000 192.0.2.1 22" gb aktualisieren --datei "$tmp/probe.csv.gz" >/dev/null 2>&1
+SSH_CONNECTION="$AT4 50000 192.0.2.1 22" gb aktualisieren --datei "$tmp/probe.txt" >/dev/null 2>&1
 behaupte "Aussperrschutz: Sitzung aus AT → geladen" $?
-SSH_CONNECTION="$US4 50000 192.0.2.1 22" gb aktualisieren --datei "$tmp/probe.csv.gz" --force >/dev/null 2>&1
+SSH_CONNECTION="$US4 50000 192.0.2.1 22" gb aktualisieren --datei "$tmp/probe.txt" --force >/dev/null 2>&1
 behaupte "Aussperrschutz: mit --force bewusst übergangen" $?
 
 # --- Kaputte Liste: Die geladene bleibt
-# Halbe Datei: Die Probe ist nur gut 120 Bytes groß — eine feste Länge schnitte womöglich nichts ab.
-head -c "$(( $(wc -c < "$tmp/probe.csv.gz") / 2 ))" "$tmp/probe.csv.gz" > "$tmp/kaputt.csv.gz"
-gzip -t "$tmp/kaputt.csv.gz" 2>/dev/null; [ $? -ne 0 ]; behaupte "Gegenprobe: die abgeschnittene Liste ist wirklich beschädigt" $?
-gb aktualisieren --datei "$tmp/kaputt.csv.gz" >/dev/null 2>&1; rc=$?
-[ $rc -ne 0 ] && erreicht $AT4 $HOST && ! erreicht $US4 $HOST; behaupte "kaputte Liste: abgelehnt, die geladene Sperre gilt weiter" $?
+# Ohne die letzten Einträge: Die Summenzeilen passen nicht mehr — eine abgeschnittene Übertragung.
+head -n -2 "$tmp/probe.txt" > "$tmp/kaputt.txt"
+out="$(gb aktualisieren --datei "$tmp/kaputt.txt" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q "abgeschnitten" && erreicht $AT4 $HOST && ! erreicht $US4 $HOST
+behaupte "abgeschnittene Liste: abgelehnt, die geladene Sperre gilt weiter" $?
 
 # --- Start ohne Liste: fail-closed, Tailnet bleibt offen
 rm -f "$W/var/lib/corevision/geoblock/regeln.nft"

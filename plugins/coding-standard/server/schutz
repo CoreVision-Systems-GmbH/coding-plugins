@@ -1,0 +1,398 @@
+#!/usr/bin/env bash
+# schutz — Server-Schutz nach dem Firmenstandard der CoreVision Systems GmbH, mit den Parametern
+# des Servers cvsx2 (gelesen am 2026-09-30): Fail2Ban, CrowdSec mit Konsole und
+# Community-Blockliste, Protokolle mit Adressen höchstens 90 Tage. Die Firewall (ufw) prüft er, das
+# Geoblocking richtet `geoblock` ein. Anleitung: EINRICHTUNG.md, Teil B.2, C.1 und C.5, ADR 0009.
+#
+# Aufruf, als root (setup-server.sh ruft es auf; andere Debian- und Ubuntu-Server direkt aus dem
+# geklonten Standard):
+#
+#   schutz einrichten [--dry-run]
+#   schutz check            Exit 0: alles eingerichtet und aktiv; 2: nur die Konsole fehlt; 1: mehr
+#
+# Was es tut — jeder Schritt wird übersprungen, wenn er schon erledigt ist:
+#   Fail2Ban: Jail sshd (3 Fehlversuche in 15 Minuten → 15 Minuten, jede Wiederholung ×4 bis zu
+#     einer Woche) und recidive (5 Sperren an einem Tag → eine Woche, alle Ports, schon am Hook
+#     prerouting). Nie gesperrt: Loopback, Tailnet, private Netze und die Admin-IPs des Servers.
+#   CrowdSec: aus dem signierten Repo von packagecloud (genau ein Schlüssel, Fingerabdruck
+#     festgenagelt), mit dem Firewall-Bouncer für nftables. Collections linux, sshd, caddy,
+#     base-http-scenarios, http-cve und whitelist-good-actors; liest auth.log, syslog, kern.log und
+#     das Zugriffsprotokoll des Edge (/var/log/caddy/access.log); Tailnet, private Netze und
+#     Admin-IPs auf der Whitelist, die Admin-IPs dazu auf der Allowlist (die gilt auch für die
+#     Community-Blockliste); Sperre 4 h. Über die zentrale API teilt
+#     es Angreifer-Adressen und bezieht die Community-Blockliste. An die Konsole meldet es sich mit
+#     dem Enroll-Key der Firma an — aus der Umgebung (CROWDSEC_ENROLL_KEY) oder verdeckt abgefragt,
+#     Tresor-Eintrag „crowdsec-enroll-corevision“.
+#   Protokolle: Journal und das Protokoll von CrowdSec höchstens 90 Tage, denn sie enthalten
+#     Adressen — auch das gedrosselte Log des Geoblockings (Sicherheitsprotokoll, ADR 0007 und 0009).
+#   Firewall: prüft, dass ufw aktiv ist und eingehend wie weitergeleitet verwirft. Die Regeln setzt
+#     setup-server.sh, auf anderen Servern der Betreiber (Kochbuch C.5).
+#
+# Die Admin-IPs liest es aus /etc/corevision/geoblock.conf — gesetzt mit
+# `setup-server.sh --admin-ips …` bzw. `geoblock einrichten --admin-ips …` (Werte aus dem Tresor).
+#
+# Was es NICHT tut: ufw-Regeln setzen, SSH härten, Login-Jails von Anwendungen anlegen, etwas löschen.
+# Grenze: `cscli console enroll` nimmt den Key nur als Argument; er steht während des Aufrufs in der
+# Prozessliste. Es ist ein Einschreibe-Key, die Konsole muss jede Anmeldung bestätigen.
+# Rückweg: systemctl disable --now crowdsec crowdsec-firewall-bouncer crowdsec-hubupdate.timer fail2ban;
+#          rm /etc/fail2ban/jail.d/corevision.local /etc/systemd/journald.conf.d/corevision.conf;
+#          Pakete mit apt remove.
+
+# Ganzer Rest in einem Block: bash liest ihn vollständig, bevor es ihn ausführt.
+{
+set -euo pipefail
+
+W="${SERVER_WURZEL:-}"     # nur Tests setzen das: Wurzel eines Wegwerf-Dateisystems
+GEOBLOCK_KONF="$W/etc/corevision/geoblock.conf"
+JAIL="$W/etc/fail2ban/jail.d/corevision.local"
+JOURNAL="$W/etc/systemd/journald.conf.d/corevision.conf"
+LOGROTATE_CS="$W/etc/logrotate.d/corevision-crowdsec"
+CADDY_LOG="$W/var/log/caddy"
+CS="$W/etc/crowdsec"
+CS_WHITELIST="$CS/parsers/s02-enrich/corevision-admin-whitelist.yaml"
+CS_ALLOWLIST_STAND="$CS/corevision-allowlist.stand"
+CS_ENROLL_ANGEFRAGT="$CS/corevision-enroll-angefragt"
+CS_SCHLUESSEL="$W/etc/apt/keyrings/crowdsec_crowdsec-archive-keyring.gpg"
+CS_QUELLE="$W/etc/apt/sources.list.d/crowdsec_crowdsec.list"
+# Fingerabdruck des Schlüssels, mit dem packagecloud das CrowdSec-Repo signiert — derselbe wie auf
+# cvsx2 (2026-09-30). Wer das Repo übernimmt, müsste auch diesen Schlüssel haben.
+CS_FINGERABDRUCK="6A89E3C2303A901A889971D3376ED5326E93CD0C"
+CS_COLLECTIONS="crowdsecurity/linux crowdsecurity/sshd crowdsecurity/caddy crowdsecurity/base-http-scenarios crowdsecurity/http-cve crowdsecurity/whitelist-good-actors"
+ALLOWLIST="corevision-admin"
+# Nie gesperrt (Entscheidung des Inhabers 2026-10-01, ADR 0009): das Tailnet — authentifizierter
+# Zugang und einziger Weg zu SSH, auf Dev auch zum Edge — und private Netze (Docker, LAN), wie beim
+# Geoblocking (ADR 0008). Sonst sperrte ein Tippfehler oder eine Entwicklungssitzung das eigene Team
+# aus, `recidive` sogar vor der Tailnet-Freigabe des Geoblockings.
+FREI_NETZE="100.64.0.0/10 fd7a:115c:a1e0::/48 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
+
+hilfe() { sed -n '2,/^# Ganzer Rest/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
+
+schritt()  { printf '\n== %s\n' "$1"; }
+ok()       { printf '   ok      %s\n' "$1"; }
+tun()      { printf '   mache   %s\n' "$1"; }
+warnung()  { printf '   achtung %s\n' "$1"; }
+befunde=0; handgriffe=0
+befund()   { printf '   FEHLT   %s\n' "$1"; befunde=$((befunde + 1)); }
+handgriff(){ printf '   HAND    %s\n' "$1"; handgriffe=$((handgriffe + 1)); }
+fehler()   { printf 'FEHLER  %s\n' "$1" >&2; exit 1; }
+vorhanden(){ command -v "$1" >/dev/null 2>&1; }
+
+befehl="${1:-}"; [ $# -gt 0 ] && shift
+trocken=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run) trocken=1 ;;
+        --help|-h) hilfe; exit 0 ;;
+        *) printf 'Unbekannte Option: %s (siehe --help)\n' "$1" >&2; exit 1 ;;
+    esac
+    shift
+done
+case "$befehl" in
+    --help|-h|hilfe) hilfe; exit 0 ;;
+    einrichten|check) ;;
+    "") hilfe >&2; exit 1 ;;
+    *) printf 'Unbekannter Befehl: %s (siehe --help)\n' "$befehl" >&2; exit 1 ;;
+esac
+if [ -z "$W" ] && [ "$(id -u)" -ne 0 ]; then fehler "Bitte als root starten: sudo schutz $befehl"; fi
+
+# schreibe <datei> <modus> — schreibt stdin nur, wenn sich der Inhalt ändert; 0 heißt geändert.
+schreibe() {
+    local datei="$1" modus="$2" neu
+    neu="$(cat)"
+    if [ -f "$datei" ] && [ "$(cat "$datei")" = "$neu" ]; then return 1; fi
+    if [ $trocken -eq 1 ]; then tun "würde schreiben: $datei"; return 1; fi
+    mkdir -p "$(dirname "$datei")"
+    printf '%s\n' "$neu" > "$datei"
+    chmod "$modus" "$datei"
+    tun "geschrieben: $datei"
+    return 0
+}
+apt_aktualisiert=0
+apt_rein() {
+    if [ $trocken -eq 1 ]; then tun "würde installieren: $*"; return 0; fi
+    if [ $apt_aktualisiert -eq 0 ]; then DEBIAN_FRONTEND=noninteractive apt-get update -qq; apt_aktualisiert=1; fi
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@"
+}
+paket_da() { dpkg -s "$1" >/dev/null 2>&1; }
+
+# Ausgaben von cscli erst einlesen, dann prüfen — nie `cscli … | grep -q`: grep endet beim ersten
+# Treffer, cscli bekommt SIGPIPE, und unter pipefail hieße das „fehlt“ (am 2026-09-29 genau so bei
+# `geoblock check` mit nft passiert).
+collections_aktiv() { cscli collections list -o raw 2>/dev/null || true; }
+collection_aktiv() { case $'\n'"$2" in *$'\n'"$1",enabled*) return 0 ;; *) return 1 ;; esac; }
+# „is enrolled“ — so meldet cscli eine Anmeldung; ohne sie steht die Zeile nicht da.
+konsole_angemeldet() { case "$(cscli capi status 2>&1 || true)" in *"is enrolled in the console"*) return 0 ;; *) return 1 ;; esac; }
+
+# Admin-IPs aus der Konfiguration des Geoblockings, je Zeile eine. sed endet nach dem ersten Treffer
+# selbst — kein `head`, das sed unter pipefail mit SIGPIPE abbräche.
+# Ein CR aus einer unter Windows bearbeiteten Datei fällt weg, wie im awk von geoblock.
+admin_zeile() { sed -n '/^ADMIN_IPS=/{s///p;q;}' "$GEOBLOCK_KONF" 2>/dev/null | tr -d '\r' || true; }
+admin_ips() { admin_zeile | tr ',' '\n' | grep . || true; }
+# Die Admin-IPs landen in der Konfiguration von Fail2Ban und im YAML von CrowdSec. geoblock prüft sie
+# beim Schreiben; eine von Hand geänderte Datei darf hier nichts einschleusen und nichts ganz
+# freigeben — also nur Adressen und Netze, IPv4 ab /16, IPv6 ab /32.
+admin_pruefen() {
+    local a len liste=()
+    IFS=, read -r -a liste <<< "$(admin_zeile)"
+    for a in "${liste[@]}"; do
+        len=""; case "$a" in */*) len="${a#*/}" ;; esac
+        case "$a" in
+            ''|*[!0-9a-fA-F:./]*|*/*/*|*/) fehler "Ungültige Admin-IP in ${GEOBLOCK_KONF#"$W"}: „$a“ — setzen mit geoblock einrichten --admin-ips …" ;;
+        esac
+        case "$len" in ''|[0-9]|[0-9][0-9]|1[0-2][0-9]) ;; *) fehler "Ungültige Admin-IP in ${GEOBLOCK_KONF#"$W"}: „$a“" ;; esac
+        [ -z "$len" ] && continue
+        case "$a" in
+            *:*) [ "$len" -ge 32 ] || fehler "Admin-Netz zu weit in ${GEOBLOCK_KONF#"$W"}: $a (IPv6 ab /32)" ;;
+            *)   { [ "$len" -ge 16 ] && [ "$len" -le 32 ]; } || fehler "Admin-Netz zu weit in ${GEOBLOCK_KONF#"$W"}: $a (IPv4 ab /16)" ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------- Fail2Ban
+jail_datei() {
+    printf '# Verwaltet von schutz — Werte wie auf cvsx2 (2026-09-30). Admin-IPs aus %s.\n' "${GEOBLOCK_KONF#"$W"}"
+    printf '[DEFAULT]\nignoreip = 127.0.0.1/8 ::1 %s' "$FREI_NETZE"
+    admin_ips | while IFS= read -r a; do printf ' %s' "$a"; done
+    printf '\n\n'
+    cat <<'EOF'
+[sshd]
+enabled  = true
+backend  = systemd
+maxretry = 3
+findtime = 15m
+bantime  = 15m
+bantime.increment = true
+bantime.factor    = 4
+bantime.maxtime   = 1w
+
+# Wiederholungstäter: fünf Sperren an einem Tag → eine Woche, alle Ports. Am Hook prerouting,
+# damit auch die Ports gesperrt sind, die Docker veröffentlicht.
+[recidive]
+enabled   = true
+banaction = nftables[type=allports, blocktype=drop, chain_hook=prerouting, chain_priority=-160]
+chain     = f2b-prerouting
+protocol  = tcp,udp
+EOF
+}
+
+fail2ban_einrichten() {
+    local p
+    schritt "Fail2Ban (sshd, recidive)"
+    # python3-systemd: Der Jail sshd liest das Journal (backend = systemd).
+    for p in fail2ban python3-systemd; do if paket_da "$p"; then ok "$p"; else apt_rein "$p"; fi; done
+    if jail_datei | schreibe "$JAIL" 644; then
+        systemctl enable --now fail2ban >/dev/null 2>&1 || true
+        # Scheitert das Neuladen, liefe Fail2Ban still mit den alten Werten weiter.
+        if fail2ban-client reload >/dev/null; then tun "Fail2Ban neu geladen"
+        else befund "Fail2Ban hat die neue Konfiguration nicht geladen — fail2ban-client -t zeigt den Fehler"; fi
+    else ok "$JAIL"; fi
+    if [ $trocken -eq 0 ] && ! systemctl is-active -q fail2ban; then
+        systemctl enable --now fail2ban >/dev/null; tun "Fail2Ban gestartet"
+    fi
+}
+
+# ---------------------------------------------------------------- CrowdSec
+# schluessel_ok <datei> — 0, wenn die Datei genau einen Schlüssel enthält und es der festgenagelte
+# ist. Nur den ersten Fingerabdruck zu prüfen genügte nicht: Ein angehängter zweiter Schlüssel käme
+# mit in den Keyring, und apt vertraute Paketen, die er signiert.
+schluessel_ok() {
+    local liste
+    liste="$(gpg --show-keys --with-colons "$1" 2>&1)" || return 1
+    [ "$(printf '%s\n' "$liste" | grep -c '^pub:')" -eq 1 ] || return 1
+    [ "$(printf '%s\n' "$liste" | awk -F: '$1 == "fpr" && !f { print $10; f = 1 }')" = "$CS_FINGERABDRUCK" ]
+}
+
+crowdsec_repo() {
+    local tmp p
+    if [ -f "$CS_QUELLE" ] && [ -f "$CS_SCHLUESSEL" ] && schluessel_ok "$CS_SCHLUESSEL"; then
+        ok "Repo von CrowdSec (packagecloud, Schlüssel geprüft)"; return 0
+    fi
+    if [ $trocken -eq 1 ]; then tun "würde das Repo von CrowdSec einrichten (packagecloud, signiert)"; return 0; fi
+    for p in curl gnupg; do paket_da "$p" || apt_rein "$p"; done
+    # Offizieller Weg wie https://install.crowdsec.net, aber ohne `curl | sh`: Schlüssel holen, prüfen,
+    # erst dann dem Repo trauen. Ein vorhandener Keyring, der die Prüfung nicht besteht, wird ersetzt.
+    tmp="$(mktemp)"
+    curl -fsSL --proto "=https" https://packagecloud.io/crowdsec/crowdsec/gpgkey -o "$tmp"
+    if ! schluessel_ok "$tmp"; then
+        rm -f "$tmp"; fehler "Der Schlüssel des CrowdSec-Repos ist nicht genau der mit dem Fingerabdruck $CS_FINGERABDRUCK — nichts installiert"
+    fi
+    install -d -m 0755 "$(dirname "$CS_SCHLUESSEL")"
+    gpg --dearmor < "$tmp" > "$CS_SCHLUESSEL"; chmod 644 "$CS_SCHLUESSEL"; rm -f "$tmp"
+    # „any“ statt Codename: so auch auf Ubuntu 26.04 und Debian (cvsx2 nimmt „noble“ für 26.04).
+    printf 'deb [signed-by=/etc/apt/keyrings/crowdsec_crowdsec-archive-keyring.gpg] https://packagecloud.io/crowdsec/crowdsec/any/ any main\n' > "$CS_QUELLE"
+    apt_aktualisiert=0
+    tun "Repo von CrowdSec eingerichtet (Schlüssel geprüft)"
+}
+
+whitelist_datei() {
+    local einzeln netze
+    einzeln="$(admin_ips | grep -v / || true)"; netze="$(admin_ips | grep / || true)"
+    printf '# Verwaltet von schutz — nie gesperrt: Tailnet, private Netze und die Admin-IPs dieses Servers (Tresor).\n'
+    printf 'name: corevision/admin-whitelist\ndescription: "Tailnet, private Netze und Admin-IPs des Servers"\n'
+    printf 'whitelist:\n  reason: "Tailnet, privates Netz oder Admin-IP des Servers"\n'
+    # Leere Liste lässt es weg, statt `ip:` ohne Einträge zu schreiben.
+    if [ -n "$einzeln" ]; then printf '  ip:\n'; printf '%s\n' "$einzeln" | sed 's/.*/    - "&"/'; fi
+    printf '  cidr:\n'
+    { printf '%s\n' $FREI_NETZE; [ -z "$netze" ] || printf '%s\n' "$netze"; } | sed 's/.*/    - "&"/'
+}
+
+# Die Whitelist oben wirkt nur auf die eigene Erkennung. Gegen die Community-Blockliste — etwa die
+# NAT-Adresse eines Büros darauf — hilft nur eine Allowlist der Local API.
+allowlist_soll() { admin_ips | tr '\n' ' ' | sed 's/ $//'; }
+allowlist_einrichten() {
+    local soll
+    soll="$(allowlist_soll)"
+    if [ -f "$CS_ALLOWLIST_STAND" ] && [ "$(cat "$CS_ALLOWLIST_STAND")" = "$soll" ]; then
+        ok "Allowlist $ALLOWLIST (auch gegen die Community-Blockliste)"; return 0
+    fi
+    cscli allowlists delete "$ALLOWLIST" >/dev/null 2>&1 || true
+    if [ -n "$soll" ]; then
+        if ! cscli allowlists create "$ALLOWLIST" -d "Admin-IPs des Servers (Tresor)" >/dev/null; then
+            befund "Allowlist $ALLOWLIST nicht angelegt"; return 0
+        fi
+        # shellcheck disable=SC2086  # je Adresse ein Argument
+        if ! cscli allowlists add "$ALLOWLIST" $soll >/dev/null; then befund "Admin-IPs nicht in die Allowlist $ALLOWLIST übernommen"; return 0; fi
+    fi
+    printf '%s\n' "$soll" > "$CS_ALLOWLIST_STAND"
+    tun "Allowlist $ALLOWLIST: ${soll:-leer}"
+}
+
+konsole_einrichten() {
+    local key=""
+    if konsole_angemeldet; then ok "an der CrowdSec-Konsole angemeldet"; return 0; fi
+    # Angefragt, aber noch nicht bestätigt: nicht bei jedem Lauf erneut einschreiben.
+    if [ -f "$CS_ENROLL_ANGEFRAGT" ]; then
+        handgriff "Anmeldung an der CrowdSec-Konsole in app.crowdsec.net bestätigen (angefragt $(cat "$CS_ENROLL_ANGEFRAGT"))"
+        return 0
+    fi
+    key="${CROWDSEC_ENROLL_KEY:-}"
+    # Nur fragen, wenn jemand am Terminal sitzt — sonst hinge etwa eine Testsuite an der Abfrage.
+    if [ -z "$key" ] && [ -t 0 ] && ( exec </dev/tty ) 2>/dev/null; then
+        printf '   Enroll-Key der CrowdSec-Konsole (Tresor „crowdsec-enroll-corevision“, Eingabe unsichtbar, leer = später): ' >/dev/tty
+        IFS= read -rs key </dev/tty || true
+        printf '\n' >/dev/tty
+    fi
+    if [ -z "$key" ]; then
+        # Der Key nie auf die Kommandozeile (Verlauf, Prozessliste): erneut starten, verdeckt eingeben.
+        handgriff "CrowdSec an der Konsole anmelden: sudo schutz einrichten erneut starten und den Enroll-Key aus dem Tresor (crowdsec-enroll-corevision) verdeckt eingeben"
+        return 0
+    fi
+    if cscli console enroll --name "$(hostname)" --enable context,manual "$key" >/dev/null 2>&1; then
+        date '+%F %H:%M %Z' > "$CS_ENROLL_ANGEFRAGT"
+        systemctl restart crowdsec
+        tun "an der Konsole angemeldet — die Anmeldung in app.crowdsec.net bestätigen"
+    else befund "Anmeldung an der CrowdSec-Konsole gescheitert (Key prüfen)"; fi
+}
+
+crowdsec_einrichten() {
+    local p c fehlend="" geaendert=0 aktiv
+    schritt "CrowdSec (Parameter von cvsx2)"
+    crowdsec_repo
+    # rsyslog: CrowdSec liest auth.log, syslog und kern.log wie auf cvsx2.
+    for p in rsyslog crowdsec crowdsec-firewall-bouncer-nftables; do if paket_da "$p"; then ok "$p"; else apt_rein "$p"; fi; done
+    if [ $trocken -eq 1 ]; then tun "würde Collections, Erfassung, Whitelist, Allowlist und Konsole einrichten"; return 0; fi
+
+    aktiv="$(collections_aktiv)"
+    for c in $CS_COLLECTIONS; do collection_aktiv "$c" "$aktiv" || fehlend="$fehlend $c"; done
+    if [ -n "$fehlend" ]; then
+        # shellcheck disable=SC2086
+        cscli collections install $fehlend >/dev/null; tun "Collections installiert:$fehlend"; geaendert=1
+    else ok "Collections: $(echo "$CS_COLLECTIONS" | wc -w | tr -d ' ') von cvsx2"; fi
+
+    # Erfassung mit denselben Dateinamen wie cvsx2 (acquis.d/setup.*.yaml): Was die Paketinstallation
+    # dort anlegt, wird ersetzt statt doppelt gelesen.
+    printf 'filenames:\n  - /var/log/messages\n  - /var/log/syslog\n  - /var/log/kern.log\nlabels:\n  type: syslog\nsource: file\n' \
+        | schreibe "$CS/acquis.d/setup.linux.yaml" 644 && geaendert=1
+    printf 'filenames:\n  - /var/log/auth.log\n  - /var/log/secure\nlabels:\n  type: syslog\nsource: file\n' \
+        | schreibe "$CS/acquis.d/setup.sshd.yaml" 644 && geaendert=1
+    # Genau access.log statt *.log wie auf cvsx2: Die Dateien, die Caddy beim Rollen anlegt, passten
+    # sonst ins Muster und würden als neue Dateien von vorn gelesen — alte Anfragen zählten doppelt.
+    # Der Ordner muss beim Laden da sein, und force_inotify beobachtet ihn auch, solange die Datei
+    # fehlt: Sonst läse CrowdSec sie nach der Ersteinrichtung nie (Review von #101).
+    if [ ! -d "$CADDY_LOG" ]; then mkdir -p "$CADDY_LOG"; chmod 750 "$CADDY_LOG"; tun "angelegt: /var/log/caddy (für die Erfassung)"; fi
+    printf 'filenames:\n  - /var/log/caddy/access.log\nforce_inotify: true\nlabels:\n  type: caddy\nsource: file\n' \
+        | schreibe "$CS/acquis.d/setup.caddy.yaml" 644 && geaendert=1
+    if [ -s "$CS/acquis.yaml" ] && grep -qvE '^\s*(#|$)' "$CS/acquis.yaml"; then
+        # Nicht verlagern: Dort können Quellen des Betreibers stehen (nginx, Anwendungen).
+        warnung "acquis.yaml enthält eigene Quellen und bleibt — Dateien, die auch acquis.d/setup.*.yaml liest, dort entfernen (sonst doppelt gezählt)"
+    fi
+    whitelist_datei | schreibe "$CS_WHITELIST" 644 && geaendert=1
+    for p in crowdsec crowdsec-firewall-bouncer crowdsec-hubupdate.timer; do
+        if systemctl is-enabled -q "$p" 2>/dev/null; then :; else systemctl enable --now "$p" >/dev/null; tun "eingeschaltet: $p"; fi
+    done
+    if [ $geaendert -eq 1 ]; then systemctl reload-or-restart crowdsec; tun "CrowdSec neu geladen"; fi
+    allowlist_einrichten
+    konsole_einrichten
+}
+
+# ---------------------------------------------------------------- Protokolle
+journal_datei() {
+    printf '# Verwaltet von schutz — Sicherheitsprotokolle mit Adressen höchstens 90 Tage (ADR 0007, 0009).\n'
+    # journald löscht nur ganze Dateien: Mit Dateien von höchstens einer Woche hält die Frist genau.
+    printf '[Journal]\nMaxRetentionSec=90day\nMaxFileSec=1week\n'
+}
+logrotate_crowdsec() {
+    # CrowdSec rollt sein Protokoll nur nach Größe — auf einem ruhigen Server hielte es Adressen ohne
+    # Frist. Wöchentlich geschnitten, 11 Wochen Rückblick.
+    printf '# Verwaltet von schutz — Protokoll von CrowdSec höchstens 90 Tage (ADR 0009).\n'
+    printf '/var/log/crowdsec.log /var/log/crowdsec_api.log {\n\tweekly\n\trotate 11\n\tcopytruncate\n\tcompress\n\tdelaycompress\n\tmissingok\n\tnotifempty\n}\n'
+}
+protokolle_einrichten() {
+    schritt "Protokolle höchstens 90 Tage"
+    if journal_datei | schreibe "$JOURNAL" 644; then
+        systemctl restart systemd-journald && tun "Journal neu gestartet"
+    else ok "Journal: MaxRetentionSec=90day"; fi
+    logrotate_crowdsec | schreibe "$LOGROTATE_CS" 644 || ok "Protokoll von CrowdSec: logrotate"
+}
+
+# ---------------------------------------------------------------- Prüfung
+check() {
+    local c s aktiv
+    schritt "Server-Schutz"
+    s=$'\n'"$(ufw status verbose 2>/dev/null || true)"
+    # „disabled (routed)“ zeigt ufw auf Servern ohne IP-Weiterleitung — dort wird nichts weitergeleitet.
+    if case "$s" in *$'\nStatus: active'*) true ;; *) false ;; esac \
+        && case "$s" in *$'\nDefault: deny (incoming), allow (outgoing), deny (routed)'*|*$'\nDefault: deny (incoming), allow (outgoing), disabled (routed)'*) true ;; *) false ;; esac; then
+        ok "ufw aktiv: eingehend und weitergeleitet verworfen"
+    else befund "ufw nicht aktiv oder nicht „deny (incoming), allow (outgoing), deny (routed)“"; fi
+    for s in sshd recidive; do
+        if fail2ban-client status "$s" >/dev/null 2>&1; then ok "Fail2Ban-Jail $s aktiv"; else befund "Fail2Ban-Jail $s nicht aktiv"; fi
+    done
+    # Weicht die Datei ab, gelten andere Werte oder alte Admin-IPs (geoblock einrichten --admin-ips allein).
+    if [ "$(jail_datei)" = "$(cat "$JAIL" 2>/dev/null)" ]; then ok "Fail2Ban-Konfiguration aktuell (Werte, Admin-IPs)"
+    else befund "Fail2Ban-Konfiguration weicht ab (Admin-IPs geändert?) — sudo schutz einrichten"; fi
+    for s in crowdsec crowdsec-firewall-bouncer; do
+        if systemctl is-active -q "$s" 2>/dev/null; then ok "$s läuft"; else befund "$s läuft nicht"; fi
+    done
+    if nft list table ip crowdsec >/dev/null 2>&1; then ok "CrowdSec-Sperren in nftables"; else befund "Tabelle ip crowdsec fehlt (Bouncer)"; fi
+    aktiv="$(collections_aktiv)"
+    for c in $CS_COLLECTIONS; do collection_aktiv "$c" "$aktiv" || befund "Collection $c fehlt"; done
+    if grep -q "force_inotify: true" "$CS/acquis.d/setup.caddy.yaml" 2>/dev/null; then ok "CrowdSec liest das Zugriffsprotokoll des Edge"
+    else befund "Erfassung des Zugriffsprotokolls fehlt oder veraltet — sudo schutz einrichten"; fi
+    if [ "$(allowlist_soll)" = "$(cat "$CS_ALLOWLIST_STAND" 2>/dev/null)" ] \
+        && { [ -z "$(allowlist_soll)" ] || cscli allowlists inspect "$ALLOWLIST" >/dev/null 2>&1; }; then
+        ok "Allowlist der Admin-IPs aktuell"
+    else befund "Allowlist der Admin-IPs fehlt oder veraltet — sudo schutz einrichten"; fi
+    if [ "$(journal_datei)" = "$(cat "$JOURNAL" 2>/dev/null)" ]; then ok "Journal höchstens 90 Tage"; else befund "Journal ohne Frist (MaxRetentionSec)"; fi
+    [ -f "$LOGROTATE_CS" ] && ok "Protokoll von CrowdSec höchstens 90 Tage" || befund "Protokoll von CrowdSec ohne Frist (logrotate)"
+    [ $befunde -eq 0 ] || return 1
+    # Fehlt nur die Anmeldung an der Konsole (Key noch nicht im Tresor), ist das ein Handgriff: Exit 2.
+    if konsole_angemeldet; then ok "an der CrowdSec-Konsole angemeldet"
+    elif [ -f "$CS_ENROLL_ANGEFRAGT" ]; then befund "Anmeldung an der CrowdSec-Konsole angefragt — in app.crowdsec.net bestätigen"; return 2
+    else befund "nicht an der CrowdSec-Konsole angemeldet (Handgriff: sudo schutz einrichten, Enroll-Key aus dem Tresor)"; return 2; fi
+}
+
+admin_pruefen
+case "$befehl" in
+    einrichten)
+        printf 'Server-Schutz einrichten — Fail2Ban, CrowdSec, Protokolle (Parameter von cvsx2)\n'
+        [ $trocken -eq 1 ] && warnung "Trockenlauf: nichts wird verändert."
+        fail2ban_einrichten
+        crowdsec_einrichten
+        protokolle_einrichten
+        if [ $befunde -gt 0 ]; then printf 'FEHLER  %s Punkt(e) offen — siehe oben.\n' "$befunde"; exit 1; fi
+        exit 0 ;;
+    check) check ;;
+esac
+exit $?
+}

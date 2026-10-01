@@ -7,6 +7,45 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.8.0] — 2026-10-01
+
+### Hinzugefügt
+
+- **Server-Schutz auf jedem Linux-Server** — neue Regel im Kern, Werte vom Server cvsx2 (ADR 0009,
+  Kochbuch C.5). `setup-server.sh` richtet ihn ein, `--check` belegt ihn; auf anderen Debian- und
+  Ubuntu-Servern `…/server/schutz einrichten` aus dem geklonten Standard.
+  - **Fail2Ban:** SSH nach 3 Fehlversuchen 15 Minuten gesperrt, bei Wiederholung länger;
+    Wiederholungstäter eine Woche auf allen Ports.
+  - **CrowdSec** aus dem signierten Repo, mit Firewall-Bouncer, Community-Blockliste und Anmeldung
+    an der Konsole der Firma. Den Enroll-Key (Tresor `crowdsec-enroll-corevision`) fragt das
+    Skript am Terminal verdeckt ab; ohne ihn oder bis zur Bestätigung in der Konsole endet `--check`
+    mit ≠ 0 und nennt den Handgriff.
+  - **Firewall:** ufw verwirft ausdrücklich auch weitergeleitete Pakete; Prod öffnet zusätzlich
+    443/udp für **HTTP/3**.
+  - **Zugriffsprotokoll des Edge** für CrowdSec: JSON nach `/var/log/caddy/access.log`, ohne Token,
+    Schlüssel und E-Mails aus Links (auch im Referer und in Weiterleitungen), höchstens 90 Tage.
+    Bestehende Sites bekommen es beim nächsten Lauf von `setup-server.sh`; dabei wird der
+    Edge-Container neu erstellt (kurze Unterbrechung).
+  - Journal und Protokoll von CrowdSec halten Einträge höchstens 90 Tage.
+  - Tailnet und private Netze werden nie gesperrt — kein Aussperren des eigenen Teams. Admin-IPs
+    des Servers sperren weder Fail2Ban noch CrowdSec, auch nicht über die Community-Blockliste.
+
+### Geändert
+
+- **Geoblocking mit den Parametern von cvsx2** (Nachtrag ADR 0008):
+  - Die Länderliste kommt jetzt von **RIPE** (Zuteilungsliste) statt von db-ip, jeden Sonntag gegen
+    04:15. Eine abgeschnittene Datei fällt über ihre Summenzeilen auf und wird nicht geladen.
+  - **Admin-IPs je Server** (`setup-server.sh --admin-ips …`, Werte aus dem Tresor) kommen immer
+    durch, auch ohne gültige Liste. Handgriff je Server: einmal mit `--admin-ips` aufrufen (Eintrag
+    „CoreVision Admin-IPs“); Komma, Leerzeichen und Zeilenumbruch trennen.
+  - **Tailscale direkt** (UDP 41641) und DHCP-Antworten sind aus aller Welt erlaubt.
+  - Verworfene Pakete stehen gedrosselt (5 je Minute) mit `[GEOBLOCK]` und ihrer IP-Adresse im
+    Kernel-Log — ein Sicherheitsprotokoll, höchstens 90 Tage (Frist über den Server-Schutz).
+  - Fehlt die Länderliste, lädt `geoblock` nichts statt einer Sperre ohne Länder, und `check`
+    meldet es.
+  - Neue Regeln kommen nach einem Update mit dem nächsten Lauf von `setup-server.sh` bzw.
+    `geoblock einrichten` an, auch ohne Änderung an der Konfiguration.
+
 ## [1.7.1] — 2026-09-29
 
 ### Behoben

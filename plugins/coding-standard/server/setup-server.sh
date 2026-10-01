@@ -27,22 +27,27 @@
 #                           der Standardroute
 #   --laender AT,CH,LI,DE   Länder, die den Server von außen erreichen (Vorgabe; jede Abweichung
 #                           braucht eine ADR im Projekt). Ohne Angabe gilt, was gespeichert ist
+#   --admin-ips a,b,…       Admin-IPs dieses Servers (Werte aus dem Tresor): immer erlaubt, auch
+#                           in der gesperrten Fassung. Ohne Angabe gilt, was gespeichert ist
 #   --check                 installiert nichts, prüft nur; Exit 0 heißt: Server ist fertig
 #   --dry-run               zeigt, was zu tun wäre, ändert nichts
 #
 # Was es tut — jeder Schritt wird übersprungen, wenn er schon erledigt ist:
 #   Pakete (curl, git, jq, nftables, ufw, unattended-upgrades), Docker mit Compose aus dem
-#   offiziellen apt-Repo, Tailscale aus dem offiziellen apt-Repo, Firewall (ufw), Geoblocking
+#   offiziellen apt-Repo, Tailscale aus dem offiziellen apt-Repo, Firewall (ufw: eingehend und
+#   weitergeleitet verworfen, Logging low, Prod 80/443 und 443/udp für HTTP/3), Geoblocking
 #   (server/geoblock: nur AT, CH, LI, DE und Ausnahmen, auch für die Ports des Edge),
-#   /etc/corevision/server.env, /opt/edge mit Edge-Caddy (gebaut aus server/edge/Dockerfile),
-#   Netz `edge`, die Befehle edge-site, rollout und geoblock unter /usr/local/bin, sudo-Regel für
-#   die Gruppe docker.
+#   Server-Schutz (server/schutz: Fail2Ban, CrowdSec mit Konsole, Journal höchstens 90 Tage — die
+#   Parameter von cvsx2), /etc/corevision/server.env, /opt/edge mit Edge-Caddy (gebaut aus
+#   server/edge/Dockerfile, Zugriffsprotokolle nach /var/log/caddy), Netz `edge`, die Befehle
+#   edge-site, rollout, schutz und geoblock unter /usr/local/bin, sudo-Regel für die Gruppe docker.
+#   Den Enroll-Key der CrowdSec-Konsole fragt es verdeckt ab (oder aus CROWDSEC_ENROLL_KEY).
 #
 # Was es NICHT tut: `tailscale up` (Anmeldung im Browser mit dem GitHub-Konto des Servers — eigenes
 # Tailnet je Server, Zugriff über Sharing, EINRICHTUNG.md B.2), Benutzer anlegen, Anwendungen
 # einrichten (dafür deploy/install.sh bzw. deploy/dev.sh der Anwendung), etwas löschen.
 # Rückweg: docker compose -f /opt/edge/compose.yaml down; ufw disable; Pakete mit apt remove;
-#          Geoblocking: siehe geoblock --help.
+#          Geoblocking: siehe geoblock --help; Fail2Ban und CrowdSec: siehe schutz --help.
 
 # Ganzer Rest in einem Block: bash liest ihn vollständig, bevor es ihn ausführt.
 {
@@ -59,9 +64,11 @@ BIN="$W/usr/local/bin"
 hilfe() { sed -n '2,/^# Ganzer Rest/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
 rolle=""; dns=""; email=""; acmedns_url=""; ziel_ip=""; ip_gegeben=0; laender=""; trocken=0; nur_pruefen=0
+admin_ips=""; admin_gegeben=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --rolle)       rolle="${2:-}"; shift ;;
+        --admin-ips)   admin_ips="${2-}"; admin_gegeben=1; shift ;;
         --laender)     laender="${2:-}"; [ -n "$laender" ] || { printf -- '--laender braucht eine Liste, z. B. AT,CH,LI,DE (siehe --help)\n' >&2; exit 1; }; shift ;;
         --dns)         dns="${2:-}"; shift ;;
         --email)       email="${2:-}"; shift ;;
@@ -225,8 +232,10 @@ if [ $nur_pruefen -eq 0 ]; then
     case "$gegenstelle" in
         100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) ssh_ueber_tailnet=1 ;;
     esac
-    regeln=("default deny incoming" "default allow outgoing" "allow in on tailscale0")
-    if [ "$rolle" = prod ]; then regeln+=("allow 80/tcp" "allow 443/tcp"); fi
+    # Grundeinstellung wie auf cvsx2: eingehend und weitergeleitet verworfen, Logging low.
+    regeln=("default deny incoming" "default allow outgoing" "default deny routed" "logging low" "allow in on tailscale0")
+    # Prod öffentlich auf 80/443, dazu 443/udp für HTTP/3 (wie auf cvsx2)
+    if [ "$rolle" = prod ]; then regeln+=("allow 80/tcp" "allow 443/tcp" "allow 443/udp"); fi
     if [ -z "$ts_ip" ] || [ $ssh_ueber_tailnet -eq 0 ]; then
         # Nie aussperren: Port 22 schließt nur, wenn diese Sitzung nachweislich über das Tailnet
         # läuft. Unbekannte Gegenstelle (Konsole, sudo ohne Terminal) → offen lassen.
@@ -252,9 +261,16 @@ if [ $nur_pruefen -eq 0 ]; then
     # Standards). "$BASH" statt bash: Das Skript läuft auch dort, wo bash nicht im PATH liegt.
     gb=(einrichten)
     if [ -n "$laender" ]; then gb+=(--laender "$laender"); fi
+    if [ $admin_gegeben -eq 1 ]; then gb+=(--admin-ips "$admin_ips"); fi
     if [ $trocken -eq 1 ]; then gb+=(--dry-run); fi
     geoblock_steht=1
     if ! "$BASH" "$HIER/geoblock" "${gb[@]}"; then befund "Geoblocking nicht eingerichtet — siehe oben"; geoblock_steht=0; fi
+
+    # ------------------------------------------------------------ Server-Schutz
+    # Fail2Ban, CrowdSec und die Frist des Journals — Parameter von cvsx2 (ADR 0009).
+    sz=(einrichten)
+    if [ $trocken -eq 1 ]; then sz+=(--dry-run); fi
+    if ! "$BASH" "$HIER/schutz" "${sz[@]}"; then befund "Server-Schutz nicht vollständig eingerichtet — siehe oben"; fi
 
     # ------------------------------------------------------------ Konfiguration
     schritt "Server-Konfiguration"
@@ -296,6 +312,17 @@ if [ $nur_pruefen -eq 0 ]; then
             printf '# Zertifikate über ACME DNS-01 (%s) — gilt für jede Site, die „import tls_dns“ enthält.\n' "$dns"
             printf '(tls_dns) {\n\ttls {\n%s\n\t}\n}\n\n' "$tls_zeilen"
         fi
+        # Wie auf cvsx2: JSON, 50 MiB je Datei, 5 Dateien — dazu höchstens 90 Tage (ADR 0007, 0009).
+        # Die Adresse bleibt, CrowdSec braucht sie. Token, Schlüssel und E-Mail aus Links kommen nie
+        # hinein — auch nicht über den Referer der Folgeanfrage oder eine Weiterleitung (Location).
+        # Abgedeckt: Laravel (/reset-password/…, /password/reset/…, signature, /email/verify/<id>/…),
+        # Symfony (/reset-password/reset/…), Django (/reset/<uid>/…), WordPress (key, login), Devise
+        # und OAuth (…_token, code). ${1} ist die Rückreferenz der Regex, keine Shell-Variable.
+        # shellcheck disable=SC2016
+        geheim='"(?i)((?:/reset-password(?:/reset)?|/password/reset|/reset/[^/?#]+|/email/verify/[^/?#]+)/|[?&](?:[a-z_]*token|key|login|email|password|signature|code|otp)=)[^/?&#]*" "${1}ENTFERNT"'
+        printf '# Zugriffsprotokoll je Site für CrowdSec — gilt für jede Site, die „import zugriffslog“ enthält.\n'
+        printf '(zugriffslog) {\n\tlog {\n\t\toutput file /var/log/caddy/access.log {\n\t\t\troll_size 50MiB\n\t\t\troll_keep 5\n\t\t\troll_keep_for 2160h\n\t\t}\n'
+        printf '\t\tformat filter {\n\t\t\twrap json\n\t\t\trequest>uri regexp %s\n\t\t\trequest>headers>Referer regexp %s\n\t\t\tresp_headers>Location regexp %s\n\t\t}\n\t}\n}\n\n' "$geheim" "$geheim" "$geheim"
         printf 'import sites/*.caddy\n'
     } | schreibe "$EDGE/caddy/Caddyfile" 644 && neu_laden=1
     for d in sites acmedns; do
@@ -304,6 +331,29 @@ if [ $nur_pruefen -eq 0 ]; then
         fi
     done
     [ $trocken -eq 1 ] || { [ ! -d "$EDGE/caddy/acmedns" ] || chmod 700 "$EDGE/caddy/acmedns"; }
+    if [ ! -d "$W/var/log/caddy" ]; then
+        if [ $trocken -eq 1 ]; then tun "würde anlegen: /var/log/caddy"; else mkdir -p "$W/var/log/caddy"; chmod 750 "$W/var/log/caddy"; tun "angelegt: /var/log/caddy"; fi
+    fi
+    # 90 Tage auch bei wenig Verkehr: Caddy rollt nur nach Größe, access.log hielte Einträge sonst
+    # ohne Frist. logrotate schneidet wöchentlich (11 Wochen Rückblick), tmpfiles löscht im Ordner
+    # alles über 90 Tage — auch gerollte Dateien, die Caddy erst beim nächsten Rollen aufräumt.
+    printf '# Verwaltet von setup-server.sh — Zugriffsprotokolle des Edge höchstens 90 Tage (ADR 0007, 0009).\n/var/log/caddy/access.log {\n\tweekly\n\trotate 11\n\tcopytruncate\n\tcompress\n\tdelaycompress\n\tmissingok\n\tnotifempty\n}\n' \
+        | schreibe "$W/etc/logrotate.d/corevision-caddy" 644 || true
+    printf '# Verwaltet von setup-server.sh — Zugriffsprotokolle des Edge höchstens 90 Tage (ADR 0007, 0009).\nd /var/log/caddy 0750 root root 90d\n' \
+        | schreibe "$W/etc/tmpfiles.d/corevision-caddy.conf" 644 || true
+    # Sites aus der Zeit vor 1.8.0 bekommen das Zugriffsprotokoll — derselbe Anker wie bei den
+    # Kopfzeilen (edge-site): die Zeile „encode zstd gzip“.
+    for s in "$EDGE"/caddy/sites/*.caddy; do
+        [ -f "$s" ] || continue
+        if grep -q "import zugriffslog" "$s"; then continue; fi
+        if ! grep -q $'^\tencode zstd gzip$' "$s"; then
+            warnung "$(basename "$s"): ohne Anker „encode zstd gzip“ — Zugriffsprotokoll von Hand ergänzen (import zugriffslog)"
+        elif [ $trocken -eq 1 ]; then tun "würde Zugriffsprotokoll ergänzen: $(basename "$s")"
+        else
+            awk '/^\tencode zstd gzip$/ { print "\timport zugriffslog" } { print }' "$s" > "$s.neu" && mv "$s.neu" "$s"
+            tun "Zugriffsprotokoll ergänzt: $(basename "$s")"; neu_laden=1
+        fi
+    done
 
     if docker network inspect edge >/dev/null 2>&1; then ok "Netz edge"
     elif [ $trocken -eq 1 ]; then tun "würde anlegen: Netz edge"
@@ -335,7 +385,7 @@ if [ $nur_pruefen -eq 0 ]; then
     # (HIER oben); ein Symlink unterwegs meldet 777 und bricht sicher ab, statt die Ordner über
     # seinem Ziel zu überspringen. SERVER_RECHTE_PRUEFEN: nur für Tests.
     if [ -z "$W" ] || [ -n "${SERVER_RECHTE_PRUEFEN:-}" ]; then
-        for e in "$HIER/edge-site" "$HIER/rollout"; do
+        for e in "$HIER/edge-site" "$HIER/rollout" "$HIER/schutz"; do
             while :; do
                 recht="$(stat -c '%U %a' "$e" 2>/dev/null || echo '? 777')"
                 case "$recht" in
@@ -349,7 +399,7 @@ if [ $nur_pruefen -eq 0 ]; then
     fi
     # Starter statt Kopie: Die Befehle bleiben im geklonten Standard und kommen mit
     # `git pull` in neuer Fassung, ohne dass dieses Skript erneut laufen muss.
-    for b in edge-site rollout; do
+    for b in edge-site rollout schutz; do
         [ -f "$HIER/$b" ] || continue
         printf '#!/usr/bin/env bash\n# Starter, angelegt von setup-server.sh\nexec bash "%s" "$@"\n' "$HIER/$b" \
             | schreibe "$BIN/$b" 755 || ok "$BIN/$b"
@@ -380,6 +430,16 @@ if gb_pruefung="$("$BASH" "$HIER/geoblock" check 2>&1)"; then
 else
     [ $trocken -eq 1 ] || printf '%s\n' "$gb_pruefung" | sed -n 's/^   FEHLT   /           /p'
     fehlt "Geoblocking aktiv (sudo geoblock check)"
+fi
+sz_rc=0; sz_pruefung="$("$BASH" "$HIER/schutz" check 2>&1)" || sz_rc=$?
+if [ $sz_rc -eq 0 ]; then
+    ok "Server-Schutz: ufw, Fail2Ban (sshd, recidive), CrowdSec mit Konsole, Journal 90 Tage"
+elif [ $sz_rc -eq 2 ] && [ $trocken -eq 0 ]; then
+    # Wie beim DNS-Token: Der Key liegt vielleicht noch nicht im Tresor — Handgriff statt Abbruch.
+    handgriff "CrowdSec an der Konsole anmelden: sudo schutz einrichten erneut starten und den Enroll-Key aus dem Tresor (crowdsec-enroll-corevision) verdeckt eingeben"
+else
+    [ $trocken -eq 1 ] || printf '%s\n' "$sz_pruefung" | sed -n 's/^   FEHLT   /           /p'
+    fehlt "Server-Schutz vollständig (sudo schutz check)"
 fi
 if [ -f "$KONF" ]; then ok "$KONF (Rolle $rolle, DNS $dns, Ziel-IP ${ziel_ip:-?})"; else fehlt "$KONF"; fi
 if [ -z "$ziel_ip" ] && [ $wartet_auf_tailscale -eq 0 ]; then handgriff "Ziel-IP für A-Records unbekannt — mit --ip <adresse> angeben"; fi

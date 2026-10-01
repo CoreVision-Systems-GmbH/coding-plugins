@@ -7,8 +7,8 @@
 # Aufruf, als root (setup-server.sh richtet es ein; andere Linux-Server mit nftables und systemd
 # direkt aus dem geklonten Standard):
 #
-#   geoblock einrichten [--laender AT,CH,LI,DE] [--force] [--dry-run]
-#   geoblock aktualisieren [--datei <dbip-country-lite.csv.gz>] [--force]
+#   geoblock einrichten [--laender AT,CH,LI,DE] [--admin-ips a,b,…] [--force] [--dry-run]
+#   geoblock aktualisieren [--datei <delegated-ripencc-extended>] [--force]
 #   geoblock erlauben <netz>|dienst:<name> --grund "<ADR im Projekt: Anlass>" [--force]
 #   geoblock entfernen <netz>|dienst:<name>
 #   geoblock liste
@@ -17,17 +17,22 @@
 #   geoblock waechter       nur für den Wächter: lädt eine verschwundene Tabelle nach
 #
 # Was es tut: eine nftables-Tabelle `inet corevision_geoblock`, Kette am Hook prerouting — sie
-# sieht auch die Pakete, die Docker an Container weiterleitet. Durch lässt sie loopback, das Tailnet (tailscale0), Antworten auf Verbindungen,
-# die der Server selbst aufbaut, private IPv4-Quellen, IPv6-ULA aus den Docker-Netzen, die
-# Nachbarerkennung von IPv6, die Adressen der erlaubten Länder und die Ausnahmen. Alles andere
-# verwirft sie ohne Antwort. Die Länderliste ist db-ip „IP to Country Lite“
-# (IP Geolocation by DB-IP, https://db-ip.com, CC BY 4.0), erneuert jeden Montag
+# sieht auch die Pakete, die Docker an Container weiterleitet. Durch lässt sie loopback, das
+# Tailnet (tailscale0), Antworten auf Verbindungen, die der Server selbst aufbaut, DHCP-Antworten,
+# private IPv4-Quellen, IPv6-ULA aus den Docker-Netzen, die Nachbarerkennung von IPv6, Tailscale
+# direkt (UDP 41641), die Admin-IPs dieses Servers, die Adressen der erlaubten Länder und die
+# Ausnahmen. Alles andere verwirft sie ohne Antwort und schreibt es gedrosselt (5 je Minute) mit
+# „[GEOBLOCK] “ ins Kernel-Log. Die Länderliste ist die Zuteilungsliste von RIPE
+# (delegated-ripencc-extended, wie auf cvsx2), erneuert jeden Sonntag
 # (corevision-geoblock-aktualisieren.timer).
 # Eine Liste, die unvollständig, fehlerhaft oder unplausibel ist, wird nicht geladen — die alte
 # bleibt. Fehlt beim Start jede Liste, sperrt die Tabelle alles Öffentliche; das Tailnet bleibt
 # offen. Ein Wächter (alle 5 Minuten) lädt die Tabelle nach, falls ein `flush ruleset` sie löscht.
 # `einrichten` legt diesen Befehl als Kopie unter /usr/local/bin ab (root, 755): Beim Start und
 # vom Timer läuft nur diese Kopie, nie Code aus dem Klon. Nach `git pull` erneut einrichten.
+#
+# Admin-IPs: je Server, Werte aus dem Tresor (nie im Verteil-Repo), mit --admin-ips; sie kommen
+#   immer durch, auch in der gesperrten Fassung, und zählen für den Aussperrschutz.
 #
 # Ausnahmen: Jede Abweichung von AT, CH, LI, DE braucht eine ADR im Projekt der Anwendung.
 #   Netze: IPv4 ab /8, IPv6 ab /16, z. B. 198.51.100.0/24. Dienste mit offizieller Adressliste,
@@ -40,7 +45,7 @@
 # der Befehl zurück und endet mit 1 — außer mit --force.
 #
 # Was es NICHT tut: ausgehenden Verkehr filtern, ufw ändern, nftables.service benutzen (dessen
-# `flush ruleset` löscht die Regeln von Docker und ufw), Zugriffe protokollieren, bestehende
+# `flush ruleset` löscht die Regeln von Docker und ufw), erlaubte Zugriffe protokollieren, bestehende
 # Verbindungen trennen (nach `entfernen` laufen sie bis zu ihrem Ende weiter).
 # Rückweg: systemctl disable --now corevision-geoblock.service corevision-geoblock-aktualisieren.timer \
 #              corevision-geoblock-waechter.timer
@@ -57,7 +62,8 @@ KONF_DIR="$W/etc/corevision"
 KONF="$KONF_DIR/geoblock.conf"
 AUSNAHMEN="$KONF_DIR/geoblock-ausnahmen"
 DATEN="$W/var/lib/corevision/geoblock"
-ROH="$DATEN/dbip-country-lite.csv.gz"
+ROH="$DATEN/delegated-ripencc-extended"
+RIPE_URL="https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest"
 REGELN="$DATEN/regeln.nft"
 STAND="$DATEN/stand"
 EINHEITEN="$W/etc/systemd/system"
@@ -83,10 +89,11 @@ vorhanden(){ command -v "$1" >/dev/null 2>&1; }
 protokoll() { if vorhanden logger; then logger -t geoblock -- "$1 (${SUDO_USER:-root})" || true; fi; }
 
 befehl="${1:-}"; [ $# -gt 0 ] && shift
-laender=""; datei=""; grund=""; ziel=""; trocken=0; erzwingen=0
+laender=""; datei=""; grund=""; ziel=""; trocken=0; erzwingen=0; admin_ips=""; admin_gegeben=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --laender)  laender="${2:-}"; shift ;;
+        --admin-ips) admin_ips="${2-}"; admin_gegeben=1; shift ;;
         --datei)    datei="${2:-}"; shift ;;
         --grund)    grund="${2:-}"; shift ;;
         --force)    erzwingen=1 ;;
@@ -121,6 +128,8 @@ schreibe() {
 }
 
 konf_laender() { sed -n 's/^LAENDER=//p' "$KONF" 2>/dev/null | head -1 || true; }
+ohne_admin=0   # nur `laden`: gesperrte Fassung notfalls ohne eine von Hand verdorbene Admin-Liste
+konf_admin()   { [ $ohne_admin -eq 1 ] || { sed -n 's/^ADMIN_IPS=//p' "$KONF" 2>/dev/null | head -1 || true; }; }
 stand_wert()   { sed -n "s/^$1=//p" "$STAND" 2>/dev/null | head -1 || true; }
 tabelle_geladen() { nft list table inet "$TABELLE" >/dev/null 2>&1; }
 
@@ -133,60 +142,68 @@ pruefe_laender() {
 }
 
 # ---------------------------------------------------------------- Länderliste
-# Hilfen für beide awk-Programme. Hexadezimal von Hand: gawk kennt strtonum, mawk nicht — und ein
-# Vergleich der Texte als Zahl hielte „3e3“ (awk liest 3000) für den Block 3000.
+# Hilfen für beide awk-Programme (gawk und mawk).
 AWK_HILFEN='
 function v4(a,  p, i) {
     if (a !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) return 0
-    split(a, p, "."); for (i = 1; i <= 4; i++) if (length(p[i]) > 3 || p[i] + 0 > 255) return 0
+    # Keine führende Null: nft liest 010 oktal als 8 — die Grenzen hier rechneten mit 10.
+    split(a, p, "."); for (i = 1; i <= 4; i++) if (length(p[i]) > 3 || p[i] + 0 > 255 || p[i] ~ /^0[0-9]/) return 0
     return 1
 }
 function n4(a,  p) { split(a, p, "."); return ((p[1] * 256 + p[2]) * 256 + p[3]) * 256 + p[4] }
-function v6(a,  q, n, i) {
-    if (a !~ /^[0-9a-fA-F:]+$/ || a !~ /[0-9a-fA-F]/ || a !~ /:/ || a ~ /::.*::/) return 0
-    n = split(a, q, ":"); if (n > 8) return 0
-    for (i = 1; i <= n; i++) if (length(q[i]) > 4) return 0
-    return 1
+function a4(x) { return int(x / 16777216) "." int(x / 65536) % 256 "." int(x / 256) % 256 "." x % 256 }
+function v6(a,  q, n, i, k) {
+    # So streng wie nft: ohne „::“ genau acht Gruppen, mit „::“ höchstens sieben; ein einzelner
+    # Doppelpunkt am Rand ist kein Kürzel. Was hier durchgeht und nft ablehnt, bräche die Sperre.
+    if (a !~ /^[0-9a-fA-F:]+$/ || a !~ /[0-9a-fA-F]/ || a ~ /::.*::/ || a ~ /:::/) return 0
+    if ((a ~ /^:/ && a !~ /^::/) || (a ~ /:$/ && a !~ /::$/)) return 0
+    n = split(a, q, ":"); k = 0
+    for (i = 1; i <= n; i++) { if (length(q[i]) > 4) return 0; if (q[i] != "") k++ }
+    if (a ~ /::/) return k <= 7
+    return n == 8 && k == 8
 }
-function hex(x,  i, n, c) {
-    n = 0; x = tolower(x)
-    for (i = 1; i <= length(x); i++) { c = index("0123456789abcdef", substr(x, i, 1)); if (!c) return -1; n = n * 16 + c - 1 }
-    return n
-}
-# block <adresse> <nr> — der nr-te 16-Bit-Block als Zahl; was „::“ auslässt, ist 0.
-function block(a, nr,  h, q, n) {
-    if (index(a, "::")) { split(a, h, "::"); a = h[1] }
-    n = split(a, q, ":")
-    return (nr <= n && q[nr] != "") ? hex(q[nr]) : 0
-}
-# nft lehnt einen Bereich mit gleichem Anfang und Ende ab — eine Einzeladresse steht allein.
-function element(a, b) { return (a == b) ? a : a "-" b }
 '
 
+# Die Länderliste ist die Zuteilungsliste von RIPE (delegated-ripencc-extended, wie auf cvsx2):
+# Zeilen „ripencc|<land>|ipv4|<start>|<anzahl>|<datum>|<status>|…“ bzw. „…|ipv6|<präfix>|<länge>|…“.
 # Alles, was aus dem Netz kommt, landet in einer Datei, die root als Firewall lädt: Jede Zeile der
-# gewählten Länder muss streng eine Adresse sein, sonst gilt die ganze Liste als fehlerhaft.
-# modus=zaehlen: je Land die IPv4-Bereiche, dann „GESAMT <bereiche> <ipv4-adressen> <ipv6-/32>
-# <verworfen> <fehlerhaft>“; modus=4 oder 6: die Elemente der Familie, je Zeile eines.
+# gewählten Länder muss streng eine Adresse sein, sonst gilt die ganze Liste als fehlerhaft. Die
+# Summenzeilen der Datei nennen die Zahl der Einträge je Typ — stimmt sie nicht, ist die Datei
+# abgeschnitten. modus=zaehlen: je Land die IPv4-Einträge, „SUMMEN ok|abgeschnitten“, dann
+# „GESAMT <einträge> <ipv4-adressen> <ipv6-/32> <fehlerhaft>“; modus=4 oder 6: die Elemente der
+# Familie für nft, je Zeile eines.
 LISTE_AWK="$AWK_HILFEN"'
 { sub(/\r$/, "") }
-NF != 3 { fehlerhaft++; next }
-index(l, "," $3 ",") == 0 { next }
-$1 ~ /:/ || $2 ~ /:/ {
-    if (!v6($1) || !v6($2)) { fehlerhaft++; next }
-    # Über den ersten 16-Bit-Block hinaus füllt db-ip Lücken des Adressraums (am 2026-09-29: elf
-    # CH-Bereiche wie 2003:4000:: bis 23ff:…) — solche Bereiche werden verworfen, nicht geladen.
-    if ($1 ~ /^::/ || block($1, 1) != block($2, 1)) { verworfen++; next }
-    if (block($2, 2) < block($1, 2)) { fehlerhaft++; next }
-    g++; netze6 += block($2, 2) - block($1, 2) + 1
-    if (modus == 6) print element($1, $2)
+/^#/ || $0 == "" { next }
+$1 == "2" && !version { version = 1; saetze = $4; next }
+$6 == "summary" { summe[$3] = $5; next }
+NF < 7 || NF > 8 { fehlerhaft++; next }
+{ zahl[$3]++; alle++ }
+index(l, "," $2 ",") == 0 || ($7 != "allocated" && $7 != "assigned") { next }
+$3 == "ipv4" {
+    # Höchstens ein /8 je Eintrag — der größte echte ist 53.0.0.0/8 (DE, am 2026-09-30).
+    if (!v4($4) || $5 !~ /^[0-9]+$/ || $5 < 1 || $5 > 16777216 || n4($4) + $5 - 1 > 4294967295) { fehlerhaft++; next }
+    n[$2]++; g++; adr += $5
+    # nft lehnt einen Bereich mit gleichem Anfang und Ende ab — eine Einzeladresse steht allein.
+    if (modus == 4) print ($5 == 1 ? $4 : $4 "-" a4(n4($4) + $5 - 1))
     next
 }
-{
-    if (!v4($1) || !v4($2) || n4($2) < n4($1) || n4($2) - n4($1) >= 16777216) { fehlerhaft++; next }
-    n[$3]++; g++; adr += n4($2) - n4($1) + 1
-    if (modus == 4) print element($1, $2)
+$3 == "ipv6" {
+    # IPv6 ab /16 — der größte echte Eintrag ist ein /19 (am 2026-09-30).
+    if (!v6($4) || $5 !~ /^[0-9]+$/ || $5 < 16 || $5 > 128) { fehlerhaft++; next }
+    g++; netze6 += ($5 <= 32 ? 2 ^ (32 - $5) : 1)
+    if (modus == 6) print $4 "/" $5
+    next
 }
-END { if (modus == "zaehlen") { for (k in n) print k, n[k]; printf "GESAMT %d %.0f %d %d %d\n", g, adr, netze6, verworfen, fehlerhaft } }'
+END {
+    if (modus != "zaehlen") exit
+    for (k in n) print k, n[k]
+    summen = "ok"
+    if (!version || !("ipv4" in summe) || !("ipv6" in summe) || saetze + 0 != alle) summen = "abgeschnitten"
+    for (t in summe) if (summe[t] + 0 != zahl[t]) summen = "abgeschnitten"
+    print "SUMMEN", summen
+    printf "GESAMT %d %.0f %d %d\n", g, adr, netze6, fehlerhaft
+}'
 
 # Netze der Ausnahmen: IPv4 oder IPv6, ohne oder mit Präfix ab min4 bzw. min6. streng=1: Exit 1
 # bei der ersten ungültigen Zeile; sonst werden ungültige Zeilen still verworfen.
@@ -203,27 +220,29 @@ $0 == "" { next }
 
 # hole_liste <ziel> — lädt die Länderliste nach <ziel>; 1, wenn keine zu bekommen ist.
 hole_liste() {
-    local m
+    local stand
     if [ -n "$datei" ]; then
         [ -f "$datei" ] || { meldung "--datei $datei gibt es nicht"; return 1; }
-        cp "$datei" "$1"; printf 'QUELLE=Datei %s\n' "$datei" > "$1.quelle"; return 0
+        cp "$datei" "$1"
+    elif ! "${CURL[@]}" --max-time 600 -o "$1" "$RIPE_URL" 2>/dev/null; then
+        meldung "Länderliste von RIPE nicht abrufbar (ftp.ripe.net) — nichts geändert"
+        return 1
     fi
-    # Die Datei eines Monats erscheint erst im Lauf des Monats — bis dahin gilt die des Vormonats.
-    for m in "$(date -u +%Y-%m)" "$(date -u -d "$(date -u +%Y-%m-01) -1 month" +%Y-%m)"; do
-        if "${CURL[@]}" --max-time 300 -o "$1" "https://download.db-ip.com/free/dbip-country-lite-$m.csv.gz" 2>/dev/null; then
-            printf 'QUELLE=db-ip %s\n' "$m" > "$1.quelle"; return 0
-        fi
-    done
-    meldung "Länderliste von db-ip nicht abrufbar (download.db-ip.com) — nichts geändert"
-    return 1
+    # Stand der Liste aus der Versionszeile (Feld 6, JJJJMMTT) — zeigt `liste`.
+    stand="$(awk -F'|' '$1 == "2" { print $6; exit }' "$1")"
+    printf 'QUELLE=RIPE %s%s\n' "${stand:-?}" "${datei:+ (Datei $datei)}" > "$1.quelle"
 }
 
-# pruefe_liste <rohdatei> <laender> — gibt „<bereiche> <ipv4-adressen>“ aus; 1, wenn die Liste
-# beschädigt ist, eine fehlerhafte Zeile hat oder ein Land fehlt (es wäre danach ausgesperrt).
+# pruefe_liste <rohdatei> <laender> — gibt „<einträge> <ipv4-adressen> <ipv6-/32>“ aus; 1, wenn
+# die Liste abgeschnitten ist, eine fehlerhafte Zeile hat oder ein Land fehlt (es wäre danach
+# ausgesperrt).
 pruefe_liste() {
     local zaehlung gesamt l
-    gzip -t "$1" 2>/dev/null || { meldung "Länderliste ist beschädigt oder unvollständig (gzip) — nicht übernommen"; return 1; }
-    zaehlung="$(gzip -dc "$1" | awk -F, -v l=",$2," -v modus=zaehlen "$LISTE_AWK")"
+    [ -s "$1" ] || { meldung "Länderliste ist leer — nicht übernommen"; return 1; }
+    zaehlung="$(awk -F'|' -v l=",$2," -v modus=zaehlen "$LISTE_AWK" "$1")"
+    if ! printf '%s\n' "$zaehlung" | grep -qx "SUMMEN ok"; then
+        meldung "Länderliste ist abgeschnitten oder beschädigt (Summenzeilen stimmen nicht) — nicht übernommen"; return 1
+    fi
     gesamt="$(printf '%s\n' "$zaehlung" | sed -n 's/^GESAMT //p')"
     if [ "${gesamt##* }" != 0 ]; then
         meldung "Länderliste hat ${gesamt##* } fehlerhafte Zeilen — nicht übernommen"; return 1
@@ -235,7 +254,7 @@ pruefe_liste() {
     printf '%s\n' "$gesamt" | awk '{ print $1, $2, $3 }'
 }
 
-filtere() { gzip -dc "$1" | awk -F, -v l=",$2," -v modus="$3" "$LISTE_AWK"; }   # filtere <roh> <laender> <4|6>
+filtere() { awk -F'|' -v l=",$2," -v modus="$3" "$LISTE_AWK" "$1"; }   # filtere <roh> <laender> <4|6>
 
 # ---------------------------------------------------------------- Ausnahmen
 dienst_url() {
@@ -310,11 +329,25 @@ set_block() { # set_block <name> <typ> <datei>
 baue_regeln() {
     local aus="$1" leer="${2:-}" l
     l="$(konf_laender)"
-    : > "$aus.l4"; : > "$aus.l6"; : > "$aus.a4"; : > "$aus.a6"
+    : > "$aus.l4"; : > "$aus.l6"; : > "$aus.a4"; : > "$aus.a6"; : > "$aus.m4"; : > "$aus.m6"
+    # Admin-IPs gelten auch in der gesperrten Fassung: Sie stehen in der Konfiguration des Servers,
+    # nicht in einer Liste aus dem Netz — so bleibt der Weg zur Behebung offen.
+    if ! konf_admin | tr ',' '\n' | awk -v min4=16 -v min6=32 -v streng=1 "$NETZ_AWK" > "$aus.admin"; then
+        meldung "Ungültige Admin-IP in $KONF (IPv4 ab /16, IPv6 ab /32)"
+        rm -f "$aus".l4 "$aus".l6 "$aus".a4 "$aus".a6 "$aus".m4 "$aus".m6 "$aus.admin"; return 1
+    fi
+    awk -v a4="$aus.m4" -v a6="$aus.m6" '/:/ { print > a6; next } { print > a4 }' "$aus.admin"
+    rm -f "$aus.admin"
     if [ -z "$leer" ]; then
+        # Ohne Liste entstünde still eine Sperre ohne Länder (etwa nach `git pull` von 1.7 aus dem
+        # Klon, bevor `einrichten` die RIPE-Liste geholt hat) — dann lieber nichts laden.
+        if [ ! -s "$ROH" ]; then
+            meldung "Länderliste fehlt ($ROH) — zuerst: geoblock aktualisieren"
+            rm -f "$aus".l4 "$aus".l6 "$aus".a4 "$aus".a6 "$aus".m4 "$aus".m6; return 1
+        fi
         filtere "$ROH" "$l" 4 > "$aus.l4"
         filtere "$ROH" "$l" 6 > "$aus.l6"
-        if ! ausnahmen_adressen > "$aus.alle"; then rm -f "$aus".l4 "$aus".l6 "$aus".a4 "$aus".a6 "$aus.alle"; return 1; fi
+        if ! ausnahmen_adressen > "$aus.alle"; then rm -f "$aus".l4 "$aus".l6 "$aus".a4 "$aus".a6 "$aus".m4 "$aus".m6 "$aus.alle"; return 1; fi
         awk -v a4="$aus.a4" -v a6="$aus.a6" '/:/ { print > a6; next } { print > a4 }' "$aus.alle"
         rm -f "$aus.alle"
     fi
@@ -327,6 +360,8 @@ baue_regeln() {
         set_block erlaubt6 ipv6_addr "$aus.l6"
         set_block ausnahmen4 ipv4_addr "$aus.a4"
         set_block ausnahmen6 ipv6_addr "$aus.a6"
+        set_block admin4 ipv4_addr "$aus.m4"
+        set_block admin6 ipv6_addr "$aus.m6"
         cat <<'KETTE'
 	chain eingang {
 		# prerouting statt input: Pakete an Docker-Container werden weitergeleitet und kämen am
@@ -335,6 +370,10 @@ baue_regeln() {
 		type filter hook prerouting priority -150; policy accept;
 		iifname { "lo", "tailscale0" } accept
 		ct state established,related accept
+		# DHCPv4-Antworten (Parameter von cvsx2): Das Gateway antwortet an eine Adresse, die der
+		# Server noch nicht hat — Conntrack kennt diese Verbindung nicht. Den Quellport 67 kann jeder
+		# wählen: Offen ist damit UDP 68 aus aller Welt, dort lauscht nur der DHCP-Client.
+		meta nfproto ipv4 udp sport 67 udp dport 68 accept
 		# Private IPv4-Quellen: Docker-Netze, private Netze des Anbieters, das LAN eines Servers
 		# hinter NAT. Aus dem Internet kämen sie nur gefälscht an — ohne Weg für die Antwort.
 		ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } accept
@@ -346,22 +385,30 @@ baue_regeln() {
 		icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } ip6 hoplimit 255 accept
 		ip6 saddr fe80::/10 icmpv6 type mld-listener-query accept
 		ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
+		# Tailscale direkt (WireGuard, Parameter von cvsx2): auch aus dem Ausland, sonst läuft
+		# das Tailnet über die DERP-Relais. Der Port antwortet nur Knoten mit gültigem Schlüssel.
+		udp dport 41641 accept
+		ip saddr @admin4 accept
+		ip6 saddr @admin6 accept
 		ip saddr @erlaubt4 accept
 		ip6 saddr @erlaubt6 accept
 		ip saddr @ausnahmen4 accept
 		ip6 saddr @ausnahmen6 accept
-		# Ohne log: Die Sperre protokolliert keine Adressen (ADR 0007 des Standards).
+		# Gedrosselt ins Kernel-Log (Parameter von cvsx2): Sicherheitsprotokoll mit IP, Rechtsgrund
+		# und Frist wie ADR 0007 — höchstens 5 Zeilen je Minute, damit ein Scan das Log nicht flutet.
+		limit rate 5/minute burst 5 packets log prefix "[GEOBLOCK] "
 		counter drop
 	}
 }
 KETTE
     } > "$aus"
-    printf 'LAENDER=%s\nANZAHL4=%s\nANZAHL6=%s\nADRESSEN4=%s\nNETZE6=%s\nAUSNAHMEN=%s\n' "$l" \
+    # LISTE: Die relativen Grenzen in `aktualisieren` gelten nur gegen einen Stand derselben Quelle.
+    printf 'LISTE=ripe\nLAENDER=%s\nANZAHL4=%s\nANZAHL6=%s\nADRESSEN4=%s\nNETZE6=%s\nAUSNAHMEN=%s\nADMIN=%s\n' "$l" \
         "$(wc -l < "$aus.l4" | tr -d ' ')" "$(wc -l < "$aus.l6" | tr -d ' ')" \
         "$(awk -F- "$AWK_HILFEN"'{ s += (NF == 2 ? n4($2) - n4($1) + 1 : 1) } END { printf "%.0f", s }' "$aus.l4")" \
-        "$(awk -F- "$AWK_HILFEN"'{ s += (NF == 2 ? block($2, 2) - block($1, 2) + 1 : 1) } END { printf "%d", s }' "$aus.l6")" \
-        "$(cat "$aus.a4" "$aus.a6" | wc -l | tr -d ' ')" > "$aus.zahlen"
-    rm -f "$aus.l4" "$aus.l6" "$aus.a4" "$aus.a6"
+        "$(awk -F/ '{ s += ($2 <= 32 ? 2 ^ (32 - $2) : 1) } END { printf "%d", s }' "$aus.l6")" \
+        "$(cat "$aus.a4" "$aus.a6" | wc -l | tr -d ' ')" "$(cat "$aus.m4" "$aus.m6" | wc -l | tr -d ' ')" > "$aus.zahlen"
+    rm -f "$aus.l4" "$aus.l6" "$aus.a4" "$aus.a6" "$aus.m4" "$aus.m6"
 }
 
 gegenstelle() {
@@ -384,7 +431,7 @@ oeffentlich() { # 0, wenn die Adresse aus dem Internet kommt und die Sperre sie 
 erlaubt_gegenstelle() {
     local fam=4 s
     case "$1" in *:*) fam=6 ;; esac
-    for s in erlaubt ausnahmen; do
+    for s in erlaubt ausnahmen admin; do
         nft get element inet "$TABELLE" "$s$fam" "{ $1 }" >/dev/null 2>&1 && return 0
     done
     return 1
@@ -469,8 +516,8 @@ EOF
 Description=Länderliste des Geoblockings wöchentlich erneuern
 
 [Timer]
-OnCalendar=Mon *-*-* 04:30:00 Europe/Vienna
-RandomizedDelaySec=1h
+OnCalendar=Sun *-*-* 04:15:00 Europe/Vienna
+RandomizedDelaySec=30m
 Persistent=true
 
 [Install]
@@ -501,11 +548,42 @@ EOF
 }
 EINHEITEN_AN="corevision-geoblock.service corevision-geoblock-aktualisieren.timer corevision-geoblock-waechter.timer"
 
+# regeln_aktuell — 0, wenn die gespeicherte Sperre dem entspricht, was Liste, Ausnahmen und diese
+# Fassung von geoblock heute ergäben. Sonst neu laden: So kommen neue Regeln nach einem Update des
+# Standards auch ohne Änderung an der Konfiguration an.
+regeln_aktuell() {
+    local probe="$DATEN/.probe" r=1
+    if baue_regeln "$probe" && cmp -s "$probe" "$REGELN"; then r=0; fi
+    rm -f "$probe" "$probe.zahlen"; return $r
+}
+
+# gesperrt_schreiben — die gesperrte Fassung zur geltenden Konfiguration. Sie ist der letzte Halt
+# beim Start: Was nft darin ablehnt, ließe den Server offen. Lehnt es die Admin-IPs ab, gilt sie
+# ohne sie.
+gesperrt_schreiben() {
+    mkdir -p "$DATEN"
+    if ! { baue_regeln "$DATEN/.gesperrt" leer && nft -c -f "$DATEN/.gesperrt" >/dev/null 2>&1; }; then
+        warnung "nft lehnt die gesperrte Fassung mit den Admin-IPs ab — sie gilt ohne Admin-IPs"
+        ohne_admin=1; baue_regeln "$DATEN/.gesperrt" leer; ohne_admin=0
+    fi
+    schreibe "$DATEN/gesperrt.nft" 644 < "$DATEN/.gesperrt" || ok "$DATEN/gesperrt.nft"
+    rm -f "$DATEN/.gesperrt" "$DATEN/.gesperrt.zahlen"
+}
+
 einrichten() {
-    local alt neu_l tmp konf_neu=0 e
+    local alt neu_l tmp konf_neu=0 e alt_admin neu_admin
     alt="$(konf_laender)"
     neu_l="$(printf '%s' "${laender:-${alt:-$STANDARD_LAENDER}}" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
     pruefe_laender "$neu_l"
+    # Admin-IPs je Server (Werte aus dem Tresor, nie im Verteil-Repo): ohne --admin-ips gilt, was
+    # gespeichert ist; --admin-ips "" leert die Liste.
+    alt_admin="$(konf_admin)"
+    neu_admin="$alt_admin"
+    # Auch Zeilenumbruch und Tab trennen: Die Werte kommen aus dem Notizfeld des Tresors.
+    [ $admin_gegeben -eq 0 ] || neu_admin="$(printf '%s' "$admin_ips" | tr -s ' ,;\t\r\n' ',,,,,,' | sed 's/^,//; s/,$//')"
+    if [ -n "$neu_admin" ] && ! printf '%s\n' "${neu_admin//,/$'\n'}" | awk -v min4=16 -v min6=32 -v streng=1 "$NETZ_AWK" >/dev/null; then
+        fehler_arg "Ungültige Admin-IP in --admin-ips: $neu_admin (Adressen, IPv4-Netze ab /16, IPv6 ab /32)"
+    fi
     printf '\n== Geoblocking — erlaubt: %s und die Ausnahmen dieses Servers\n' "$neu_l"
     [ $trocken -eq 1 ] && warnung "Trockenlauf: nichts wird verändert."
     [ "$neu_l" = "$STANDARD_LAENDER" ] || warnung "Abweichung vom Standard ($STANDARD_LAENDER) — braucht eine ADR im Projekt"
@@ -530,44 +608,48 @@ einrichten() {
         done
     fi
 
-    if [ -f "$ROH" ]; then ok "Länderliste vorhanden ($(stand_wert QUELLE))"
-    elif [ $trocken -eq 1 ]; then tun "würde die Länderliste holen (db-ip)"
+    if [ -f "$ROH" ]; then ok "Länderliste vorhanden ($(sed 's/^QUELLE=//' "$ROH.quelle" 2>/dev/null || echo RIPE))"
+    elif [ $trocken -eq 1 ]; then tun "würde die Länderliste holen (RIPE)"
     else
-        mkdir -p "$DATEN"; tmp="$DATEN/.neu.csv.gz"
+        mkdir -p "$DATEN"; tmp="$DATEN/.neu.ripe"
         if ! hole_liste "$tmp" || ! pruefe_liste "$tmp" "$neu_l" >/dev/null; then rm -f "$tmp" "$tmp.quelle"; return 1; fi
         mv "$tmp" "$ROH"; mv "$tmp.quelle" "$ROH.quelle"; tun "Länderliste geholt ($(sed 's/^QUELLE=//' "$ROH.quelle"))"
     fi
     if [ -f "$ROH" ]; then pruefe_liste "$ROH" "$neu_l" >/dev/null || return 1; fi
 
     [ -f "$KONF" ] && [ $trocken -eq 0 ] && cp "$KONF" "$KONF.alt"
-    printf '# Verwaltet von geoblock — Länder mit Zugriff. Abweichung von %s nur mit ADR im Projekt.\nLAENDER=%s\n' \
-        "$STANDARD_LAENDER" "$neu_l" | schreibe "$KONF" 644 && konf_neu=1
+    printf '# Verwaltet von geoblock — Länder mit Zugriff. Abweichung von %s nur mit ADR im Projekt.\nLAENDER=%s\n# Admin-IPs dieses Servers (Tresor), immer erlaubt: setup-server.sh --admin-ips bzw. geoblock einrichten --admin-ips\nADMIN_IPS=%s\n' \
+        "$STANDARD_LAENDER" "$neu_l" "$neu_admin" | schreibe "$KONF" 644 && konf_neu=1
     [ -f "$AUSNAHMEN" ] || printf '# Ausnahmen vom Geoblocking — nur über: geoblock erlauben <netz>|dienst:<name> --grund "<ADR>"\n' \
         | schreibe "$AUSNAHMEN" 644 || true
     # Kopie statt Starter: Beim Start und vom Timer läuft Code als root — nur aus einer Datei, die
     # root gehört, nicht aus dem Klon, dessen Rechte sich ändern können.
     schreibe "$BEFEHL" 755 < "$HIER/$(basename "${BASH_SOURCE[0]}")" || ok "$BEFEHL"
     # Die gesperrte Fassung für den Start, falls die gespeicherte Sperre nicht lädt.
-    if [ $trocken -eq 0 ]; then
-        mkdir -p "$DATEN"; baue_regeln "$DATEN/.gesperrt" leer
-        schreibe "$DATEN/gesperrt.nft" 644 < "$DATEN/.gesperrt" || ok "$DATEN/gesperrt.nft"
-        rm -f "$DATEN/.gesperrt" "$DATEN/.gesperrt.zahlen"
-    fi
+    [ $trocken -eq 1 ] || gesperrt_schreiben
     if einheiten; then [ $trocken -eq 1 ] || systemctl daemon-reload; else ok "systemd-Einheiten"; fi
 
     if [ $trocken -eq 1 ]; then
-        if tabelle_geladen && [ $konf_neu -eq 0 ]; then ok "Tabelle $TABELLE geladen"; else tun "würde laden: Tabelle $TABELLE"; fi
-    elif [ $konf_neu -eq 1 ] || [ ! -f "$REGELN" ] || ! tabelle_geladen; then
+        if tabelle_geladen && [ $konf_neu -eq 0 ] && [ -f "$ROH" ]; then ok "Tabelle $TABELLE geladen"; else tun "würde laden: Tabelle $TABELLE"; fi
+    elif [ $konf_neu -eq 1 ] || [ ! -f "$REGELN" ] || ! tabelle_geladen || ! regeln_aktuell; then
         # Gescheitert (Aussperrschutz, nft): Die alten Länder gelten weiter — auch für den Timer.
         if ! anwenden; then
             if [ -f "$KONF.alt" ]; then mv "$KONF.alt" "$KONF"; elif [ $konf_neu -eq 1 ]; then rm -f "$KONF"; fi
+            gesperrt_schreiben >/dev/null   # wieder passend zur alten Konfiguration
+            # Kopie und Timer sind da schon neu: Der Sonntagslauf lädt ohne SSH-Sitzung, also ohne
+            # Aussperrschutz.
+            warnung "Befehl und Timer sind schon aktualisiert — der nächste Lauf von corevision-geoblock-aktualisieren lädt die Regeln ohne Aussperrschutz. Vorher Zugang über das Tailnet oder eine Admin-IP sichern."
             return 1
         fi
         rm -f "$KONF.alt"
-        tun "geladen: $(stand_wert ANZAHL4) IPv4- und $(stand_wert ANZAHL6) IPv6-Bereiche, $(stand_wert AUSNAHMEN) Ausnahmen"
+        tun "geladen: $(stand_wert ANZAHL4) IPv4- und $(stand_wert ANZAHL6) IPv6-Bereiche, $(stand_wert AUSNAHMEN) Ausnahmen, $(stand_wert ADMIN) Admin-IPs"
         [ "$alt" = "$neu_l" ] || protokoll "Länder: ${alt:-keine} → $neu_l"
+        [ "$alt_admin" = "$neu_admin" ] || protokoll "Admin-IPs: ${alt_admin:-keine} → ${neu_admin:-keine}"
     else ok "Tabelle $TABELLE geladen"; fi
     rm -f "$KONF.alt"
+    # Bis 1.7.1 kam die Liste von db-ip. Erst löschen, wenn die RIPE-Liste geladen ist — scheitert
+    # einrichten vorher, arbeitet die alte Kopie unter /usr/local/bin mit ihrer Datei weiter.
+    [ $trocken -eq 1 ] || rm -f "$DATEN/dbip-country-lite.csv.gz" "$DATEN/dbip-country-lite.csv.gz.quelle"
 
     # Erst jetzt einschalten: Beim Start lädt der Dienst nur, was schon einmal gültig geladen war.
     for e in $EINHEITEN_AN; do
@@ -581,7 +663,7 @@ einrichten() {
 }
 
 aktualisieren() {
-    local l tmp="$DATEN/.neu.csv.gz" zahlen neu neu_adr neu_n6 alt alt_adr alt_n6 a4 a6 d fehlschlag=0 grund_ab=""
+    local l tmp="$DATEN/.neu.ripe" zahlen neu neu_adr neu_n6 alt alt_adr alt_n6 a4 a6 d fehlschlag=0 grund_ab=""
     [ -f "$KONF" ] || fehler "Geoblocking ist nicht eingerichtet — zuerst: geoblock einrichten"
     l="$(konf_laender)"
     mkdir -p "$DATEN"
@@ -591,8 +673,10 @@ aktualisieren() {
     a4="$(stand_wert ANZAHL4)"; a6="$(stand_wert ANZAHL6)"; alt_adr="$(stand_wert ADRESSEN4)"; alt_n6="$(stand_wert NETZE6)"
     alt=$(( ${a4:-0} + ${a6:-0} ))
     # Gleiche Länder, aber ganz andere Liste: eher eine abgeschnittene oder manipulierte Datei als
-    # ein neues Internet — die Monatslisten ändern sich um wenige Prozent.
-    if [ "$(stand_wert LAENDER)" = "$l" ] && [ "$alt" -gt 0 ]; then
+    # ein neues Internet — die Zuteilungen ändern sich von Woche zu Woche um wenige Prozent.
+    # Nur gegen einen Stand derselben Quelle: Der Wechsel von db-ip auf RIPE (1.8.0) ändert die
+    # Zahlen, ohne dass etwas faul ist.
+    if [ "$(stand_wert LISTE)" = ripe ] && [ "$(stand_wert LAENDER)" = "$l" ] && [ "$alt" -gt 0 ]; then
         if [ "$neu" -lt $((alt / 2)) ]; then grund_ab="nur $neu Bereiche statt bisher $alt"
         elif [ "$neu" -gt $((alt * 2)) ]; then grund_ab="$neu Bereiche statt bisher $alt — mehr als doppelt so viele"
         elif [ "${alt_adr:-0}" -gt 0 ] && [ "$neu_adr" -gt $((alt_adr * 3 / 2)) ]; then
@@ -656,6 +740,8 @@ entfernen() {
 liste() {
     [ -f "$KONF" ] || fehler "Geoblocking ist nicht eingerichtet — zuerst: geoblock einrichten"
     printf 'Länder:     %s\n' "$(konf_laender)"
+    local a; a="$(konf_admin)"
+    printf 'Admin-IPs:  %s\n' "${a:-keine}"
     printf 'Liste:      %s IPv4- und %s IPv6-Bereiche, %s\n' "$(stand_wert ANZAHL4)" "$(stand_wert ANZAHL6)" "$(stand_wert QUELLE)"
     printf 'Tabelle:    %s\n' "$(tabelle_geladen && echo geladen || echo 'NICHT geladen')"
     printf 'Ausnahmen:\n'
@@ -663,7 +749,7 @@ liste() {
 }
 
 check() {
-    local tage e
+    local tage e a
     printf '\n== Geoblocking\n'
     if [ -f "$KONF" ]; then ok "Länder: $(konf_laender)"; else befund "Geoblocking nicht eingerichtet (geoblock einrichten)"; fi
     if ! tabelle_geladen; then befund "Tabelle $TABELLE nicht geladen (geoblock laden)"
@@ -681,12 +767,16 @@ check() {
         befund "Der Wächter musste die Sperre in den letzten 7 Tagen nachladen — journalctl -t geoblock, Ursache suchen"
     fi
     if [ -f "$REGELN" ] && [ "$(stand_wert ANZAHL4)" -gt 0 ] 2>/dev/null; then
-        ok "$(stand_wert ANZAHL4) IPv4- und $(stand_wert ANZAHL6) IPv6-Bereiche, $(stand_wert AUSNAHMEN) Ausnahmen"
+        a="$(stand_wert ADMIN)"   # vor dem ersten `einrichten` mit 1.8 fehlt der Wert im Stand
+        ok "$(stand_wert ANZAHL4) IPv4- und $(stand_wert ANZAHL6) IPv6-Bereiche, $(stand_wert AUSNAHMEN) Ausnahmen, ${a:-0} Admin-IPs"
     else befund "keine gültige Länderliste gespeichert — beim Start ist alles Öffentliche gesperrt (geoblock aktualisieren)"; fi
     if [ -f "$ROH" ]; then
         tage=$(( ($(date +%s) - $(date -r "$ROH" +%s)) / 86400 ))
         if [ "$tage" -le 45 ]; then ok "Länderliste $tage Tage alt"
         else befund "Länderliste $tage Tage alt — systemctl status corevision-geoblock-aktualisieren"; fi
+    elif [ -f "$KONF" ]; then
+        # Nach einem Update von 1.7 steht hier noch keine RIPE-Liste: Jede Änderung lüde sonst nichts.
+        befund "Länderliste fehlt ($ROH) — geoblock einrichten bzw. geoblock aktualisieren"
     fi
     for e in $EINHEITEN_AN; do
         if systemctl is-enabled -q "$e" 2>/dev/null; then ok "$e eingeschaltet"; else befund "$e nicht eingeschaltet"; fi
@@ -698,12 +788,21 @@ check() {
 }
 
 laden() {
-    local leer
+    local leer geladen=0
     if [ -f "$REGELN" ] && nft -f "$REGELN"; then return 0; fi
     # Fail-closed: lieber alles Öffentliche zu als offen — das Tailnet bleibt erreichbar.
     leer="$(mktemp -d)"
-    baue_regeln "$leer/regeln" leer
-    if nft -f "$leer/regeln"; then
+    # Eine von Hand verdorbene Admin-Liste darf die gesperrte Fassung nicht verhindern — weder,
+    # wenn die Prüfung hier sie ablehnt, noch wenn erst nft es tut.
+    if baue_regeln "$leer/regeln" leer && nft -f "$leer/regeln"; then geladen=1
+    else
+        ohne_admin=1
+        if baue_regeln "$leer/regeln" leer && nft -f "$leer/regeln"; then
+            geladen=1
+            meldung "Gesperrte Fassung OHNE Admin-IPs geladen — ADMIN_IPS in $KONF korrigieren, dann: geoblock einrichten"
+        fi
+    fi
+    if [ $geladen -eq 1 ]; then
         meldung "Keine gültige Länderliste — alles Öffentliche ist gesperrt, das Tailnet bleibt offen. Beheben: geoblock aktualisieren"
     else
         meldung "Keine gültige Länderliste, und auch die Sperre ohne Länder ließ sich NICHT laden — der Server ist OFFEN. nft prüfen: nft -f $REGELN"
