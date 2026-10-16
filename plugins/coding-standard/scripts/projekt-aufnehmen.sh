@@ -48,7 +48,7 @@ Optionen:
     --stack <name>        Stack erzwingen (sonst Erkennung wie im SessionStart-Hook);
                           nötig für Stacks ohne Markerdatei, z. B. script
     --name <kebab>        Projektname (Vorgabe: Repo-Name aus origin, sonst Ordnername)
-    --owner <owner>       GitHub-Eigentümer (Vorgabe: aus origin)
+    --owner <owner>       Eigentümer auf GitHub oder Forgejo (Vorgabe: aus origin)
     --purpose "<text>"    Zweck in ein bis zwei Sätzen (Vorgabe: erster Absatz der README)
     --customer "<text>"   Kunde und Instanz; ohne Angabe: intern
     --company "<text>"    Rechteinhaber für LICENSE (Vorgabe: CoreVision Systems GmbH)
@@ -242,6 +242,15 @@ if [ -n "$REMOTE" ]; then
     REMOTE_NAME="${r##*/}"
     r="${r%/*}"
     REMOTE_OWNER="${r##*[/:]}"
+fi
+# Liegt origin auf dem eigenen Forgejo (Host von $FORGEJO_URL, Vorgabe gitts), laufen dort die
+# Claude-Durchsicht und die Registry anders. Jeder andere Host — auch ein SSH-Alias für GitHub,
+# GitLab, Bitbucket — bleibt beim GitHub-Weg.
+REMOTE_HOST=""; FORGE=github
+eigener_host="${FORGEJO_URL:-https://gitts.cvsystems.net}"; eigener_host="${eigener_host#*://}"; eigener_host="${eigener_host%%/*}"
+if [ -n "$REMOTE" ]; then
+    REMOTE_HOST="${REMOTE#*://}"; REMOTE_HOST="${REMOTE_HOST#*@}"; REMOTE_HOST="${REMOTE_HOST%%[:/]*}"
+    [ "$REMOTE_HOST" != "$eigener_host" ] || FORGE=forgejo
 fi
 
 NAME="${NAME_ARG:-${REMOTE_NAME:-$(basename "$DIR")}}"
@@ -530,12 +539,12 @@ meldung "Anlegen (Stufe 0 und 1)"
 
 [ "$aenderungen" = "0" ] \
     || abbruch "Der Arbeitsbaum ist nicht sauber ($aenderungen Änderungen). Die Aufnahme soll ein eigener, lesbarer Diff sein — erst committen oder stashen."
-[ -n "$OWNER" ] || abbruch "Kein Eigentümer: origin fehlt oder ist kein GitHub-Remote. --owner <owner> angeben."
+[ -n "$OWNER" ] || abbruch "Kein Eigentümer: origin fehlt oder nennt keinen. --owner <owner> angeben."
 
 OWNER_LC="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
 NAME_SNAKE="$(printf '%s' "$NAME" | tr '-' '_')"
 ENV_PREFIX="$(printf '%s' "${NAME##*-}" | tr '[:lower:]' '[:upper:]')_"
-IMAGE="ghcr.io/$OWNER_LC/$NAME"
+if [ "$FORGE" = forgejo ]; then IMAGE="$REMOTE_HOST/$OWNER_LC/$NAME"; else IMAGE="ghcr.io/$OWNER_LC/$NAME"; fi
 DATUM="$(date +%Y-%m-%d)"
 JAHR="$(date +%Y)"
 
@@ -643,7 +652,9 @@ if [ -n "$STACK" ] && [ "$MARKER" = "1" ] && [ ! -f "$DIR/.coding-standard" ]; t
     angelegt=$((angelegt + 1))
 fi
 
-# Stufe 1 — gemeinsame Dateien, ohne Projektstart-ADR und ohne den Neuprojekt-Status
+# Stufe 1 — gemeinsame Dateien, ohne Projektstart-ADR und ohne den Neuprojekt-Status. Auf Forgejo
+# zuerst dessen Fassung der Claude-Durchsicht; anlegen() überspringt danach die GitHub-Fassung.
+[ "$FORGE" = forgejo ] && anlegen "$vorlagen/repo-forgejo/.github/workflows/claude-review.yml" ".github/workflows/claude-review.yml"
 while IFS= read -r rel; do
     case "$rel" in
         docs/decisions/0001-projektstart.md|docs/status.md|.claude/settings.json) continue ;;

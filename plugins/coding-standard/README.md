@@ -46,20 +46,28 @@ nichts. Notausgang für eine Session: `CODING_STANDARD_OFF=1`. Was geladen wurde
 ## Neues Projekt: `/projekt-neu`
 
 Der Skill `skills/projekt-neu/` führt ein gebündeltes Interview (Name, Zweck, Stack,
-Firma/Eigentümer, Kunde) und ruft danach `scripts/projekt-neu.sh` auf. Das Skript ist
+Ort/Eigentümer, Kunde) und ruft danach `scripts/projekt-neu.sh` auf. Das Skript ist
 deterministisch und fragt nichts nach:
 
 ```bash
 bash scripts/projekt-neu.sh --list-stacks
-bash scripts/projekt-neu.sh --name <kebab> --stack <name> --owner <owner> \
-     --purpose "<Zweck>" [--customer …] [--company …] [--dir …] [--no-github] [--vault …]
+bash scripts/projekt-neu.sh --name <kebab> --stack <name> --purpose "<Zweck>" \
+     [--forge forgejo|github] [--owner …] [--forgejo-url …] [--customer …] [--company …] \
+     [--dir …] [--no-remote] [--vault …]
 ```
 
-Ablauf: prüfen (Name, Stack, Werkzeuge aus `REQUIRES`, leerer Zielordner, `gh`-Anmeldung) →
-`scaffold.sh` mit `PHASE=geruest` → gemeinsame und Stack-Vorlagen kopieren, Platzhalter
-ersetzen → `scaffold.sh` mit `PHASE=einrichten` (Abhängigkeiten, erste Prüfung) →
-`git init -b main` und ein Commit → `gh repo create --private --push` → Vault-Seite und
-Daily-Log-Zeile → Abschlussbericht mit den offenen Handgriffen.
+Repos entstehen auf dem eigenen Forgejo `https://gitts.cvsystems.net` in der Organisation `CVS`
+(Vorgabe, ADR 0010); `--forge github --owner <owner>` legt sie wie bis 1.8 auf GitHub an — für
+Externe ohne Tailnet und Kundenprojekte. Das Forgejo-Token kommt aus `$FORGEJO_TOKEN` oder dem
+Git-Credential-Helper (Scopes `write:repository`, `write:organization`).
+
+Ablauf: prüfen (Name, Stack, Werkzeuge aus `REQUIRES`, leerer Zielordner, Zugang zu Forgejo bzw.
+`gh`-Anmeldung) → `scaffold.sh` mit `PHASE=geruest` → gemeinsame und Stack-Vorlagen kopieren
+(auf Forgejo dazu `templates/repo-forgejo/`), Platzhalter ersetzen → `scaffold.sh` mit
+`PHASE=einrichten` (Abhängigkeiten, erste Prüfung) → `git init -b main` und ein Commit → Repo
+anlegen und pushen (Forgejo: samt Hauptzweig-Schutz und Squash-Merge; GitHub:
+`gh repo create --private --push`) → Vault-Seite und Daily-Log-Zeile → Abschlussbericht mit den
+offenen Handgriffen.
 
 ### Stack-Wahl
 
@@ -279,6 +287,8 @@ plugins/coding-standard/
   scripts/test-projekt-neu.sh
   scripts/projekt-aufnehmen.sh    Bestandsaufnahme und Aufnahme eines bestehenden Projekts
   scripts/test-projekt-aufnehmen.sh
+  scripts/forgejo-pr.sh           PRs auf Forgejo (view, create, checks) für /pr
+  scripts/test-forgejo-pr.sh
   hooks/hooks.json                SessionStart → standard-context.sh, PreToolUse → git-guard.sh
   hooks/standard-context.sh       lädt Kern + Overlays automatisch
   hooks/test-standard-context.sh
@@ -286,6 +296,7 @@ plugins/coding-standard/
   hooks/test-git-guard.sh
   agents/*.md
   templates/repo/                 gemeinsame Projektvorlagen
+  templates/repo-forgejo/         was auf Forgejo anders ist (claude-review.yml)
   templates/laravel|fastapi|script|astro|wordpress/   Stack-Register, Gerüst, Dateien
   templates/_vorlage/             Kopiervorlage für einen neuen Stack
   templates/aufnahme/             ADR und Status für die Aufnahme eines Bestands

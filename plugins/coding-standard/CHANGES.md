@@ -7,6 +7,33 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.9.0] — 2026-10-17
+
+### Geändert
+
+- **Neue Projekte entstehen auf dem eigenen Git-Server** `https://gitts.cvsystems.net`
+  (Forgejo, Organisation `CVS`) statt auf GitHub; GitHub bleibt zum Archivieren und für Externe ohne
+  Tailnet (ADR 0010). `/projekt-neu` fragt den Ort ab, Vorgabe ist gitts.
+  - `projekt-neu.sh --forge forgejo|github` (Vorgabe `forgejo`, Eigentümer-Vorgabe `CVS`,
+    `--forgejo-url`). Das Token kommt aus `$FORGEJO_TOKEN` oder dem Git-Credential-Helper.
+  - Auf Forgejo stellt das Skript den Hauptzweig-Schutz selbst ein: kein Push auf `main`,
+    Pflicht-Check `tests / ci`, nur Squash-Merge, Zweig nach dem Merge weg.
+  - Neu `--no-remote` (nur lokal); `--no-github` behält seine Bedeutung.
+  - Forgejo-Projekte haben bis zur nächsten Fassung kein `release.yml`; das Abbild heißt
+    `<forgejo-host>/<owner>/<name>`.
+- **`tests.yml` aller Stacks: „PR-Text prüfen“ läuft auch auf Forgejo** — dort liest der Schritt
+  den Text über die Forgejo-API statt mit `gh`. Bestehende Projekte übernehmen den Schritt beim
+  Umzug nach gitts.
+
+### Hinzugefügt
+
+- **Claude-Durchsicht auf Forgejo:** eigene Fassung von `claude-review.yml` ruft Claude Code mit
+  Leserechten auf und schreibt das Ergebnis als PR-Kommentar. Token und Schalter hält die
+  Organisation (`CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_REVIEW_ENABLED`). `/projekt-aufnehmen` legt sie
+  bei einem Forgejo-Remote an.
+- **`scripts/forgejo-pr.sh`** (`view`, `create`, `checks`): `/pr` und die Merge-Schritte von
+  `/projekt-neu` und `/projekt-aufnehmen` arbeiten damit auf Forgejo wie mit `gh pr` auf GitHub.
+
 ## [1.8.0] — 2026-10-01
 
 ### Hinzugefügt

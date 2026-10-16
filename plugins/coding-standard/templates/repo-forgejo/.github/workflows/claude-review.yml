@@ -1,0 +1,86 @@
+name: claude-review
+
+# Automatische Durchsicht jedes Pull Requests durch Claude — Fassung für Forgejo.
+#
+# Die GitHub-App „Claude" und anthropics/claude-code-action gibt es auf Forgejo nicht. Der
+# Auftrag ruft deshalb Claude Code selbst auf und schreibt das Ergebnis als Kommentar in den PR.
+# Claude darf dabei nur im Arbeitsbaum lesen und nur git diff/log/show ausführen: Der PR-Inhalt
+# steuert die Durchsicht mit, deshalb gelten keine Einstellungen aus dem Repo
+# (--setting-sources user) und der Checkout legt keine Zugangsdaten ab.
+#
+# Token und Schalter hält die Organisation (Org-Secret CLAUDE_CODE_OAUTH_TOKEN, Org-Variable
+# CLAUDE_REVIEW_ENABLED=true) — `projekt-neu.sh` nennt im Abschlussbericht, was fehlt. Das Token
+# entsteht mit `claude setup-token` in einem eigenen Terminal-Fenster, nicht über '!' in
+# Claude Code (Browser-Login). Solange die Variable nicht auf "true" steht, wird der Auftrag
+# übersprungen statt rot zu werden — ein fehlendes Geheimnis ist kein Fehler des Pull Requests.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    if: ${{ vars.CLAUDE_REVIEW_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Volle Historie: der Basiszweig ist damit als origin/<basis> da, ohne erneutes Holen.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Node einrichten
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Claude-Durchsicht
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          BASIS: ${{ github.base_ref }}
+          NUMMER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Schalter an, Secret noch nicht gesetzt: Hinweis statt rotem PR. Im if: der Jobs sind
+          # secrets nicht erlaubt, deshalb die Prüfung hier.
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::warning::CLAUDE_CODE_OAUTH_TOKEN fehlt in der Organisation — Durchsicht übersprungen."
+            exit 0
+          fi
+          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.302
+          # Lesen im Arbeitsbaum erlaubt Claude Code ohne Freigabe, außerhalb lehnt -p ab; freigegeben
+          # sind nur die drei git-Befehle.
+          claude -p "Du prüfst Pull Request #$NUMMER dieses Repositorys gegen den Basiszweig origin/$BASIS.
+          Sieh dir den Diff an (git diff origin/$BASIS...HEAD), lies die geänderten Dateien im Zusammenhang
+          und die CLAUDE.md des Repositorys. Suche Fehler in der Korrektheit, Sicherheitslücken und Verstöße
+          gegen die Regeln der CLAUDE.md. Melde nur Befunde, die du am Code belegen kannst — je Befund
+          Datei:Zeile, Schwere (hoch, mittel, niedrig) und eine Begründung in zwei Sätzen. Keine Stilfragen,
+          kein Lob, keine Zusammenfassung des Diffs. Gibt es keine Befunde, schreibe genau:
+          Claude-Durchsicht: keine Befunde.
+          Antworte auf Deutsch in Markdown, beginnend mit der Überschrift '## Claude-Durchsicht'." \
+            --setting-sources user \
+            --allowedTools "Bash(git diff:*),Bash(git log:*),Bash(git show:*)" \
+            > "$RUNNER_TEMP/durchsicht.md"
+
+      - name: Ergebnis als Kommentar
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1
+          REPO: ${{ github.repository }}
+          NUMMER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [ -s "$RUNNER_TEMP/durchsicht.md" ] || exit 0
+          python3 -c 'import json,sys; print(json.dumps({"body": open(sys.argv[1], encoding="utf-8").read()}))' \
+            "$RUNNER_TEMP/durchsicht.md" > "$RUNNER_TEMP/kommentar.json"
+          # Token über stdin, nicht als Argument — sonst stünde es in der Prozessliste des Jobs.
+          printf 'header = "Authorization: token %s"\n' "$TOKEN" \
+            | curl -fsS -K - -X POST -H "Content-Type: application/json" \
+              --data-binary "@$RUNNER_TEMP/kommentar.json" "$API/repos/$REPO/issues/$NUMMER/comments" > /dev/null

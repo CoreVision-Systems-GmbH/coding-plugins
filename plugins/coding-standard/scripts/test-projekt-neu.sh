@@ -3,9 +3,9 @@
 #
 #     bash plugins/coding-standard/scripts/test-projekt-neu.sh
 #
-# Die Proben laufen mit --no-github oder gegen eine gh-Attrappe in einem
-# Wegwerf-Verzeichnis; es entsteht kein Repository auf GitHub und nichts
-# außerhalb von $TMPDIR. Die
+# Die Proben laufen mit --no-github, gegen eine gh-Attrappe oder gegen eine
+# curl-Attrappe für Forgejo in einem Wegwerf-Verzeichnis; es entsteht kein
+# Repository auf GitHub oder Forgejo und nichts außerhalb von $TMPDIR. Die
 # FastAPI-Probe legt eine virtuelle Umgebung an und installiert die gepinnten
 # Abhängigkeiten — das dauert eine halbe bis eine Minute. Die Astro-Probe lädt
 # die npm-Abhängigkeiten aus dem Netz, baut die Site und prüft dist/ — noch
@@ -307,7 +307,7 @@ chmod +x "$attrappe/gh"
 
 bericht() { # <name> <SECRET> <SCHALTER> <APP> — legt ein Projekt gegen die Attrappe an
     PATH="$attrappe:$PATH" SECRET="$2" SCHALTER="$3" APP="$4" lauf 0 "Projekt mit GitHub entsteht ($1)" \
-        --name "$1" --stack script --owner musterorg \
+        --name "$1" --stack script --forge github --owner musterorg \
         --purpose "Wegwerfprobe des Berichts." --dir "$tmp/$1"
 }
 bericht_nennt() { # <fall> <ja|nein> <text>
@@ -341,6 +341,152 @@ bericht_nennt "nur Schalter und App fehlen" ja 'gh variable set CLAUDE_REVIEW_EN
 bericht_nennt "nur Schalter und App fehlen" ja "GitHub-App 'Claude' für musterorg/probe-misch freigeben"
 for text in 'setup-token' 'gh secret set' 'nicht prüfbar' 'nichts zu tun'; do
     bericht_nennt "nur Schalter und App fehlen" nein "$text"
+done
+
+# ------------------------------------------- Forgejo (curl-Attrappe, Bare-Repo)
+echo
+echo "== Forgejo: Repo, Hauptzweig-Schutz, Durchsicht"
+
+lauf 1 "unbekannte Forge wird abgewiesen" \
+    --name probe --stack script --forge gitlab --purpose "Probe." --no-remote
+lauf 1 "--forge github ohne --owner wird abgewiesen" \
+    --name probe --stack script --forge github --purpose "Probe." --no-remote
+
+pdir="$tmp/probe-lokal"
+lauf 0 "Forgejo ohne Remote: Vorgabe-Eigentümer CVS, kein Netz" \
+    --name probe-lokal --stack script --purpose "Wegwerfprobe." --dir "$pdir" --no-remote
+grep -q 'nur lokal (forgejo)' <<<"$LETZTE_AUSGABE" && grep -q 'CVS/probe-lokal' <<<"$LETZTE_AUSGABE"
+behaupte "Bericht nennt Forgejo und CVS/probe-lokal" $?
+grep -q 'Fassung für Forgejo' "$pdir/.github/workflows/claude-review.yml"
+behaupte "claude-review.yml ist die Forgejo-Fassung" $?
+! grep -q 'uses: anthropics/claude-code-action' "$pdir/.github/workflows/claude-review.yml"
+behaupte "claude-review.yml ohne GitHub-Action" $?
+
+# Die Attrappe spielt die Forgejo-API: Antwort nach -o, Status auf stdout — wie curl mit
+# -o und -w. Jeder Aufruf landet samt Körper im Protokoll; POST auf .../repos legt das
+# Bare-Repo an, in das git push über insteadOf geht.
+forge="$tmp/forge"; mkdir -p "$forge"
+protokoll="$tmp/forge.log"; : > "$protokoll"
+fattrappe="$tmp/attrappe-curl"; mkdir -p "$fattrappe"
+cat > "$fattrappe/curl" <<EOF
+#!$BASH
+methode=GET; koerper=""; aus=/dev/null; url=""
+konfig="\$(cat)"
+while [ \$# -gt 0 ]; do
+    case "\$1" in
+        -X) methode="\$2"; shift 2 ;;
+        --data-binary) koerper="\$2"; shift 2 ;;
+        -o) aus="\$2"; shift 2 ;;
+        -H|-K|-w) shift 2 ;;
+        -*) shift ;;
+        *) url="\$1"; shift ;;
+    esac
+done
+pfad="\${url#*/api/v1/}"
+# Körper nur aus einer Datei (@pfad) — als Argument verlöre er unter Windows die Umlaute.
+case "\$koerper" in @*) koerper="\$(cat "\${koerper#@}")" ;; "") ;; *) koerper="ARGUMENT:\$koerper" ;; esac
+printf '%s %s %s %s\n' "\$methode" "\$pfad" "\$koerper" "\$(grep -c 'token geheim' <<<"\$konfig")" >> "$protokoll"
+antwort() { printf '%s' "\$2" > "\$aus"; printf '%s' "\$1"; exit 0; }
+case "\$methode \$pfad" in
+    "GET user") antwort 200 '{"id":1,"login":"tester"}' ;;
+    "GET orgs/musterorg") antwort 200 '{"id":2,"username":"musterorg"}' ;;
+    "GET repos/musterorg/"*) antwort 404 '{"message":"Not Found"}' ;;
+    "POST orgs/musterorg/repos")
+        n="\$(printf '%s' "\$koerper" | sed 's/.*"name":"\([^"]*\)".*/\1/')"
+        git init -q --bare -b main "$forge/musterorg/\$n.git"
+        antwort 201 '{"id":3}' ;;
+    "PATCH repos/musterorg/"*) antwort 200 '{}' ;;
+    # ATTRAPPE_SCHUTZ, nicht SCHUTZ: projekt-neu.sh hat eine eigene Variable SCHUTZ, und bash
+    # exportiert geerbte Variablen — das Skript überschriebe die Vorgabe der Attrappe.
+    "POST repos/musterorg/"*"/branch_protections") [ "\$ATTRAPPE_SCHUTZ" = fehler ] && antwort 403 '{}' || antwort 201 '{}' ;;
+    "GET orgs/musterorg/actions/secrets")
+        case "\$SECRET" in ja) antwort 200 '[{"name":"CLAUDE_CODE_OAUTH_TOKEN"}]' ;; nein) antwort 200 '[]' ;; *) antwort 403 '{}' ;; esac ;;
+    "GET orgs/musterorg/actions/variables/CLAUDE_REVIEW_ENABLED")
+        case "\$SCHALTER" in ja) antwort 200 '{"data":"true"}' ;; nein) antwort 404 '{}' ;; *) antwort 403 '{}' ;; esac ;;
+esac
+echo "curl-Attrappe: unerwarteter Aufruf: \$methode \$pfad" >&2; exit 7
+EOF
+chmod +x "$fattrappe/curl"
+
+# git push geht per insteadOf in das Bare-Repo; eine eigene globale Konfiguration, damit
+# nichts vom Rechner mitspielt. Unter Windows braucht git den Pfad in Windows-Form.
+forge_git="$forge"; command -v cygpath >/dev/null 2>&1 && forge_git="$(cygpath -m "$forge")"
+cat > "$tmp/gitconfig-forge" <<EOF
+[user]
+    name = Probe
+    email = probe@example.invalid
+[init]
+    defaultBranch = main
+[url "$forge_git/"]
+    insteadOf = https://forge.test/
+EOF
+
+forgejo_lauf() { # <name> <SECRET> <SCHALTER> <SCHUTZ>
+    PATH="$fattrappe:$PATH" GIT_CONFIG_GLOBAL="$tmp/gitconfig-forge" FORGEJO_TOKEN=geheim \
+        SECRET="$2" SCHALTER="$3" ATTRAPPE_SCHUTZ="$4" lauf 0 "Projekt mit Forgejo entsteht ($1)" \
+        --name "$1" --stack script --owner musterorg --forgejo-url https://forge.test \
+        --purpose "Wegwerfprobe für Forgejo." --dir "$tmp/$1"
+}
+
+forgejo_lauf probe-fj ja ja ok
+[ "$(git -C "$tmp/probe-fj" remote get-url origin)" = "https://forge.test/musterorg/probe-fj.git" ] \
+    && ok "origin zeigt auf Forgejo" || nichtok "origin zeigt auf Forgejo"
+[ "$(git -C "$forge/musterorg/probe-fj.git" rev-parse main 2>/dev/null)" = "$(git -C "$tmp/probe-fj" rev-parse HEAD)" ] \
+    && ok "Gerüst ist nach main gepusht" || nichtok "Gerüst ist nach main gepusht"
+grep -q '^POST orgs/musterorg/repos {"name":"probe-fj",.*"private":true' "$protokoll"
+behaupte "Repo privat in der Organisation angelegt" $?
+grep -q '"description":"Wegwerfprobe für Forgejo."' "$protokoll"
+behaupte "Beschreibung mit Umlaut kommt unverändert an" $?
+! grep -q 'ARGUMENT:' "$protokoll"
+behaupte "JSON-Körper geht über eine Datei, nie als Argument" $?
+grep -q '^PATCH repos/musterorg/probe-fj .*"allow_squash_merge":true.*"default_merge_style":"squash"' "$protokoll"
+behaupte "nur Squash-Merge eingestellt" $?
+grep -qF 'POST repos/musterorg/probe-fj/branch_protections {"rule_name":"main","enable_push":false,"enable_status_check":true,"status_check_contexts":["tests / ci (pull_request)"]' "$protokoll"
+behaupte "Hauptzweig-Schutz mit Pflicht-Check 'tests / ci'" $?
+! grep -q ' 0$' "$protokoll"
+behaupte "jeder API-Aufruf trägt das Token" $?
+! grep -rq geheim "$tmp/probe-fj/.git/config"
+behaupte "Token steht nicht in .git/config" $?
+bericht_nennt "Forgejo, Org hält alles" ja 'Claude-Durchsicht der Pull Requests: nichts zu tun'
+bericht_nennt "Forgejo, Org hält alles" nein 'Hauptzweig von Hand schützen'
+
+forgejo_lauf probe-fj-fehlt nein nein fehler
+for text in 'claude setup-token' "NICHT über '!'" 'https://forge.test/org/musterorg/settings/actions/secrets' \
+            'CLAUDE_REVIEW_ENABLED mit Wert true' 'Hauptzweig von Hand schützen'; do
+    bericht_nennt "Forgejo, nichts gesetzt, Schutz scheitert" ja "$text"
+done
+
+# Kein Token und kein Credential-Helper: eine Meldung, kein stummer Abbruch (pipefail, Exit 128).
+ausgabe="$(env -u FORGEJO_TOKEN GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_ASKPASS='' \
+    bash "$skript" --name probe-ohne-token --stack script --purpose "Probe." \
+    --forgejo-url https://forge.test --dir "$tmp/probe-ohne-token" 2>&1)"; status=$?
+[ "$status" -eq 1 ] && grep -q 'Kein Forgejo-Token für forge.test' <<<"$ausgabe" \
+    && ok "ohne Token: Meldung statt stummem Abbruch" || nichtok "ohne Token: Meldung statt stummem Abbruch (Status $status)"
+lauf 1 "Zweck mit Zeilenumbruch wird abgewiesen" \
+    --name probe --stack script --purpose "$(printf 'Zeile eins.\nZeile zwei.')" --no-remote
+
+# Ein Mini-Stack mit release.yml und Abbild — billiger als ein echter Web-Stack: auf Forgejo fällt
+# release.yml weg, und das Abbild heißt <forgejo-host>/<owner>/<name>.
+fake="$tmp/plugin"; mkdir -p "$fake/templates/mini/dateien/.github/workflows" "$fake/stacks"
+cp -R "$root/templates/repo" "$root/templates/repo-forgejo" "$fake/templates/"
+printf 'LABEL="Mini"\nDESCRIPTION="Probe"\nREQUIRES=""\nCONTAINERIZED=1\nMARKER=1\n' > "$fake/templates/mini/stack.conf"
+printf 'name: release\non: push\n' > "$fake/templates/mini/dateien/.github/workflows/release.yml"
+printf 'services:\n    app:\n        image: {{IMAGE}}:${APP_VERSION}\n' > "$fake/templates/mini/dateien/compose.yaml"
+CLAUDE_PLUGIN_ROOT="$fake" lauf 0 "Mini-Stack auf Forgejo ohne Remote" \
+    --name probe-mini --stack mini --purpose "Probe." --forgejo-url https://forge.test --no-remote --dir "$tmp/probe-mini"
+[ ! -e "$tmp/probe-mini/.github/workflows/release.yml" ] \
+    && ok "Forgejo: release.yml entfällt" || nichtok "Forgejo: release.yml entfällt"
+grep -q 'image: forge.test/cvs/probe-mini:' "$tmp/probe-mini/compose.yaml" \
+    && ok "Forgejo: Abbild forge.test/cvs/probe-mini" || nichtok "Forgejo: Abbild forge.test/cvs/probe-mini"
+CLAUDE_PLUGIN_ROOT="$fake" lauf 0 "Mini-Stack auf GitHub ohne Remote" \
+    --name probe-mini-gh --stack mini --purpose "Probe." --owner musterorg --no-github --dir "$tmp/probe-mini-gh"
+[ -f "$tmp/probe-mini-gh/.github/workflows/release.yml" ] && grep -q 'image: ghcr.io/musterorg/probe-mini-gh:' "$tmp/probe-mini-gh/compose.yaml" \
+    && ok "GitHub: release.yml bleibt, Abbild auf ghcr.io" || nichtok "GitHub: release.yml bleibt, Abbild auf ghcr.io"
+
+forgejo_lauf probe-fj-mitglied fehler fehler ok
+bericht_nennt "Forgejo, Mitglied ohne Owner-Rechte" ja 'Nicht prüfbar'
+for text in 'nichts zu tun' 'claude setup-token'; do
+    bericht_nennt "Forgejo, Mitglied ohne Owner-Rechte" nein "$text"
 done
 
 # --------------------------------------------------------------- Probe fastapi

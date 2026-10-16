@@ -14,6 +14,10 @@ und ändert keinen Anwendungs-Code.
 
 ## 1. Voraussetzungen
 
+0. Plattform aus `git remote get-url origin`: enthält sie `github.com`, gelten die `gh`-Befehle
+   unten. Sonst liegt das Repo auf dem eigenen Forgejo (gitts) — dort statt `gh pr …` den
+   Helfer `bash "${CLAUDE_PLUGIN_ROOT}/scripts/forgejo-pr.sh"` mit `view`, `create` und `checks`
+   (gleiche Bedeutung, Draft = Titelpräfix „WIP: “).
 1. Aktuellen Branch lesen: `git rev-parse --abbrev-ref HEAD`.
    Ist er `main` oder `master`: **abbrechen** und sagen, dass die Arbeit auf einen eigenen
    Branch gehört (`feat/…`, `fix/…`, `chore/…`, `docs/…`).
@@ -21,7 +25,9 @@ und ändert keinen Anwendungs-Code.
    ob sie noch in den PR sollen — nicht stillschweigend committen.
 3. Ist der Branch noch nicht gepusht (`git rev-parse --abbrev-ref @{u}` schlägt fehl):
    `git push -u origin <branch>`.
-4. Gibt es für den Branch schon einen PR (`gh pr view --json number,url,isDraft`):
+4. Gibt es für den Branch schon einen PR (`gh pr view --json number,url,isDraft`, auf Forgejo
+   `forgejo-pr.sh view` — Exit 3 heißt „keiner“, jeder andere Fehler ist eine Störung, dann
+   nicht anlegen, sondern melden):
    nicht doppelt anlegen — die URL nennen und stattdessen fragen, ob der Body aktualisiert
    werden soll.
 
@@ -87,6 +93,8 @@ Rot heißt: Lücken füllen, nicht anlegen. Dann:
 
 ```bash
 gh pr create --draft --title "<titel>" --body-file <datei>
+# Forgejo:
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/forgejo-pr.sh" create --draft --title "<titel>" --body-file <datei>
 ```
 
 Den Body über eine Datei übergeben, nicht inline — sonst gehen Umlaute und Zeilenumbrüche
@@ -94,7 +102,7 @@ unter Windows verloren.
 
 ## 5. Status und Bericht
 
-1. Einmal `gh pr checks` abrufen (ohne `--watch`).
+1. Einmal `gh pr checks` abrufen (ohne `--watch`), auf Forgejo `forgejo-pr.sh checks`.
 2. Berichten:
 
 ```text

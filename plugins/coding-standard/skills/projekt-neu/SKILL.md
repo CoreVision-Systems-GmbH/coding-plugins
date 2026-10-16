@@ -1,6 +1,6 @@
 ---
 name: projekt-neu
-description: Neues Projekt vollständig nach Firmenstandard anlegen — Stack auswählen, Gerüst bauen, Vorlagen einsetzen, GitHub-Repo und Vault-Eintrag, Stack-Nacharbeit und Abschlussbericht mit den offenen Handgriffen. Nur vom Nutzer aufrufen.
+description: Neues Projekt vollständig nach Firmenstandard anlegen — Stack auswählen, Gerüst bauen, Vorlagen einsetzen, Repo auf dem eigenen Forgejo (gitts, Vorgabe) oder GitHub, Vault-Eintrag, Stack-Nacharbeit und Abschlussbericht mit den offenen Handgriffen. Nur vom Nutzer aufrufen.
 disable-model-invocation: true
 argument-hint: [name]
 ---
@@ -18,12 +18,15 @@ Erfinde nichts. Was du nicht weißt, fragst du — einmal, gebündelt.
 ## 1. Voraussetzungen feststellen
 
 ```bash
-gh auth status
+printf 'protocol=https\nhost=gitts.cvsystems.net\n\n' | GIT_ASKPASS= GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git credential fill | sed -n 's/^username=//p'
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/projekt-neu.sh --list-stacks
 ```
 
-Merke dir das **aktive** gh-Konto und die Liste der Stacks samt Beschreibung. Ist `gh` nicht
-angemeldet, sag es und biete `--no-github` an.
+Repos entstehen auf dem eigenen Forgejo `https://gitts.cvsystems.net` in der Organisation `CVS`
+(seit 1.9.0, ADR 0010); GitHub dient der Archivierung fertiger Projekte und Externen ohne Tailnet.
+Merke dir das Forgejo-Konto aus dem Credential-Helper (das Passwort nie ausgeben) und die Liste
+der Stacks samt Beschreibung. Liefert der Helper nichts, sag es und biete `--no-remote` an oder,
+wenn das Projekt auf GitHub soll, `gh auth status` und `--forge github`.
 
 ## 2. Ein gebündeltes Interview
 
@@ -37,7 +40,7 @@ angemeldet, sag es und biete `--no-github` an.
 |---|---|
 | **Zweck** | Zwei Vorschläge aus Name und Kontext als Optionen; den eigenen Text tippt der Nutzer über „Other". Zwei Sätze: was es tut, für wen. Geht in `CLAUDE.md`, `README.md`, ADR und die Repo-Beschreibung. |
 | **Stack** | Die Namen aus `--list-stacks`, jeweils mit LABEL als Beschreibung. Vorher die Stack-Wahl-Regel unten anwenden und den passenden Stack als erste Option mit „(empfohlen)“ markieren. |
-| **Firma / GitHub-Eigentümer** | „CoreVision Systems", „anderer (frei eingeben)". |
+| **Ort und Eigentümer** | „gitts, Organisation CVS (empfohlen)", „GitHub CoreVision-Systems-GmbH (Externe)", „anderer (frei eingeben)". |
 | **Kunde/Instanz** | „intern" oder frei, z. B. „Musterkunde auf host1". |
 
 Zur Stack-Wahl (aus Name, Zweck und Kontext):
@@ -58,7 +61,9 @@ Zur Stack-Wahl (aus Name, Zweck und Kontext):
 
 Zum Eigentümer:
 
-- **CoreVision Systems** → Organisation `CoreVision-Systems-GmbH`. Vorher prüfen, dass
+- **gitts, CVS** → `--forge forgejo` und Eigentümer `CVS` sind die Vorgabe, beides muss nicht
+  angegeben werden. Rechteinhaber in `LICENSE` bleibt `CoreVision Systems GmbH`.
+- **GitHub CoreVision-Systems-GmbH** → `--forge github --owner CoreVision-Systems-GmbH`. Vorher prüfen, dass
   `gh api orgs/CoreVision-Systems-GmbH/memberships/<aktives konto>` eine aktive
   Mitgliedschaft meldet. Sonst sagen, dass die Organisation mit diesem Konto nicht
   erreichbar ist, und das aktive Konto als Eigentümer nehmen.
@@ -70,13 +75,13 @@ bei `CoreVision Systems GmbH`.
 ## 3. Zusammenfassung und Freigabe
 
 Zeige in sechs Zeilen: Name · Stack · Eigentümer · Zielordner (`~/Code/<name>`) · Kunde ·
-ob ein GitHub-Repo entsteht. Warte die Bestätigung ab. Erst danach schreibt irgendetwas.
+wo das Repo entsteht (gitts/CVS, GitHub oder nur lokal). Warte die Bestätigung ab. Erst danach schreibt irgendetwas.
 
 ## 4. Skript ausführen
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/projekt-neu.sh \
-  --name <name> --stack <stack> --owner <owner> \
+  --name <name> --stack <stack> [--forge github --owner <owner>] \
   --purpose "<zweck>" [--customer "<kunde>"] [--company "<firma>"] \
   [--vault <pfad>]
 ```
@@ -183,15 +188,17 @@ git status --short     # jede Datei sichten: nur die Nacharbeit, keine .env, kei
 git add <datei> …      # exakte Pfade — `git add -A` blockt der Git-Guard
 git commit -m "chore: Firmenstandard-Nacharbeit (Fassung, TrustProxies, Prüfungen)"
 git push -u origin chore/firmenstandard-nacharbeit
-gh pr create --fill
-gh pr checks --watch
-gh pr merge --squash --delete-branch
 ```
 
-Der PR ist zugleich der erste Beweis, dass `tests.yml` auf GitHub durchläuft — bleibt er rot,
+Danach den PR anlegen und die CI abwarten. Auf gitts:
+`bash ${CLAUDE_PLUGIN_ROOT}/scripts/forgejo-pr.sh create --title "<titel>" --body-file <datei>`,
+dann `… forgejo-pr.sh checks` bis grün, gemergt per Squash in der Oberfläche. Auf GitHub:
+`gh pr create --fill`, `gh pr checks --watch`, `gh pr merge --squash --delete-branch`.
+
+Der PR ist zugleich der erste Beweis, dass `tests.yml` in der CI (forgejor1 oder GitHub) durchläuft — bleibt er rot,
 ist das der nächste Arbeitsschritt, nicht der Merge. Der allererste CI-Lauf auf `main` (vom
 Push des Gerüsts) ist bei Laravel erwartbar rot: `composer ci:setup` entsteht erst mit dieser
-Nacharbeit. Ohne Repository (`--no-github`) gibt es keinen Remote: dann direkt auf `main`
+Nacharbeit. Ohne Repository (`--no-remote`) gibt es keinen Remote: dann direkt auf `main`
 committen.
 
 Für **astro**, **fastapi**, **script** und **wordpress** gibt es keine Nacharbeit — deren
@@ -206,8 +213,9 @@ Seiten leer an.
 Gib die Liste **Offene Handgriffe** aus dem Abschlussbericht des Skripts wieder — sie ist die
 eigentliche Übergabe —, und zwar **von selbst und vollständig**, nicht erst auf Nachfrage:
 
-- Jeden Handgriff zuerst am Ist-Zustand prüfen (`gh`: Secrets und Variablen von Repo **und**
-  Organisation, Rulesets, `deployments`-Repo), Erledigtes mit Nachweis abhaken, Offenes mit
+- Jeden Handgriff zuerst am Ist-Zustand prüfen (gitts: Forgejo-API mit dem Token aus dem
+  Credential-Helper — Hauptzweig-Schutz, Org-Secret und -Variable, soweit lesbar; GitHub: `gh`
+  mit Secrets und Variablen von Repo **und** Organisation, Rulesets; dazu das `deployments`-Repo), Erledigtes mit Nachweis abhaken, Offenes mit
   genauer Schritt-für-Schritt-Anleitung nennen. Was du selbst tun darfst (Variable, Ruleset),
   anbieten statt nur aufzählen.
 - Befehle mit Browser-Login oder verdeckter Eingabe (`claude setup-token`, `gh auth login`,

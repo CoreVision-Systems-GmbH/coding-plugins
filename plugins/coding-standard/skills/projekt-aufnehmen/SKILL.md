@@ -105,6 +105,11 @@ gh pr checks --watch
 gh pr merge --squash --delete-branch
 ```
 
+Liegt `origin` auf dem eigenen Forgejo (gitts), statt der drei `gh`-Zeilen
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/forgejo-pr.sh" create --title "<titel>" --body-file <datei>`,
+dann `… forgejo-pr.sh checks` bis grün und Squash-Merge in der Oberfläche. Die Aufnahme legt dort
+die Forgejo-Fassung von `claude-review.yml` an.
+
 ## 6. Stufe 2 und 3 — nicht in diesem Lauf
 
 Jeder Punkt aus `docs/status.md` ist ein eigener PR mit Plan Mode (der Lieferweg ist

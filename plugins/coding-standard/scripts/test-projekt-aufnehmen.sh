@@ -416,6 +416,26 @@ grep -q 'Datenbank: SQLite — Abweichung vom Standard (PostgreSQL), ADR fehlt\.
     && ok "Abweichung steht in der CLAUDE.md, auch wenn die Vorlage denselben Namen trägt" \
     || nichtok "Abweichung steht in der CLAUDE.md, auch wenn die Vorlage denselben Namen trägt"
 
+# ------------------------------------------------------- Bestand auf Forgejo
+echo
+echo "== Bestand mit Forgejo-Remote"
+fg="$tmp/bestand-forgejo"; mkdir -p "$fg"
+printf '# Werkzeug\n\nPrüft Sicherungen.\n' > "$fg/README.md"
+git_repo "$fg" "https://gitts.example.test/CVS/bestand-forgejo.git"
+FORGEJO_URL=https://gitts.example.test lauf 0 "Forgejo-Remote: --apply" --dir "$fg" --apply --stack script
+grep -q 'Fassung für Forgejo' "$fg/.github/workflows/claude-review.yml" \
+    && ok "claude-review.yml ist die Forgejo-Fassung" || nichtok "claude-review.yml ist die Forgejo-Fassung"
+grep -q 'CVS' "$fg/.github/CODEOWNERS" "$fg/CLAUDE.md" 2>/dev/null \
+    && ok "Eigentümer CVS aus dem Forgejo-Remote" || nichtok "Eigentümer CVS aus dem Forgejo-Remote"
+
+# Ein fremder Host (hier ein SSH-Alias für GitHub) ist nicht der eigene Forgejo.
+fx="$tmp/bestand-alias"; mkdir -p "$fx"
+printf '# Werkzeug\n\nPrüft Sicherungen.\n' > "$fx/README.md"
+git_repo "$fx" "git@github-work:musterorg/bestand-alias.git"
+FORGEJO_URL=https://gitts.example.test lauf 0 "fremder Host: --apply" --dir "$fx" --apply --stack script
+grep -q 'uses: anthropics/claude-code-action' "$fx/.github/workflows/claude-review.yml" \
+    && ok "fremder Host bekommt die GitHub-Fassung" || nichtok "fremder Host bekommt die GitHub-Fassung"
+
 echo
 if [ "$fehler" -eq 0 ]; then
     echo "Alle Fälle grün."
