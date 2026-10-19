@@ -18,7 +18,8 @@
 # (git add -A) erlaubt — gedacht für Doku- und Backup-Repos ohne PR-Fluss (z. B. den
 # Notiz-Vault). Alles andere (Force-Push, Löschen von Remote-Zweigen, reset --hard,
 # clean -f, branch -D, rm -rf, --no-verify, Umbiegen der Hooks, Datenbanklöscher) bleibt
-# auch dort geblockt.
+# auch dort geblockt. git branch -D ist nur für Zweige erlaubt, deren Upstream auf dem Remote
+# gelöscht ist ([gone]).
 #
 # Seit 1.0.0 zusätzlich geblockt: git add ohne Pfadangabe (. / -A / -u / :/ — Dateien mit
 # exaktem Pfad stagen, so landen .env, Dumps und Diagnoseskripte nicht im Repo), --no-verify
@@ -120,6 +121,30 @@ current_branch() {
 # Bash und PowerShell maskieren verschieden (\ bzw. `) und nur Bash kennt Heredocs.
 SESSION_CWD=""
 TOOL="Bash"
+
+# Ziel von git -C <pfad> im aktuellen Segment; leer = Arbeitsverzeichnis der Session.
+GIT_C_DIR=""
+
+# branches_gone <zweig>… — wahr, wenn jeder genannte lokale Zweig einen Upstream hat, den es
+# auf dem Remote nicht mehr gibt ([gone]): gepusht und dort gelöscht, typischerweise nach dem
+# Merge seines PRs. Unbekannte Zweige, Zweige ohne Upstream und leere Listen: falsch.
+branches_gone() {
+  [ $# -gt 0 ] || return 1
+  local dir="$SESSION_CWD" name track
+  [ -n "$dir" ] || dir="$(pwd 2>/dev/null || printf '')"
+  dir="${dir//\\//}"
+  if [ -n "$GIT_C_DIR" ]; then
+    case "$GIT_C_DIR" in
+      /*|[A-Za-z]:[\\/]*) dir="${GIT_C_DIR//\\//}" ;;
+      *) dir="$dir/${GIT_C_DIR//\\//}" ;;
+    esac
+  fi
+  for name in "$@"; do
+    track="$(git -C "$dir" for-each-ref --format='%(upstream:track)' "refs/heads/$name" 2>/dev/null)"
+    [ "$track" = "[gone]" ] || return 1
+  done
+  return 0
+}
 
 main_push_allowed() {
   local dir="$SESSION_CWD"
@@ -342,12 +367,18 @@ check_git() {
       ;;
 
     branch)
+      local force=0
+      local -a names=()
       for arg in ${args[@]+"${args[@]}"}; do
         case "$arg" in
           --*) : ;;
-          -*) case "$arg" in *D*) deny "Blockiert: git branch -D löscht einen Zweig auch dann, wenn er nicht gemergt ist. Zweige werden über den gemergten PR aufgeräumt; ein wirklich verworfener Zweig wird nach ausdrücklicher Freigabe des Nutzers gelöscht." ;; esac ;;
+          -*) case "$arg" in *D*) force=1 ;; esac ;;
+          *) names+=("$arg") ;;
         esac
       done
+      if [ $force -eq 1 ] && ! branches_gone ${names[@]+"${names[@]}"}; then
+        deny "Blockiert: git branch -D löscht einen Zweig auch dann, wenn er nicht gemergt ist. Erlaubt nur für Zweige, deren Upstream auf dem Remote gelöscht ist ([gone], git branch -vv); sonst wird ein wirklich verworfener Zweig nach ausdrücklicher Freigabe des Nutzers gelöscht."
+      fi
       ;;
 
     checkout)
@@ -536,10 +567,13 @@ check_segment() {
   case "${tokens[$i],,}" in
     git|git.exe|*/git|*/git.exe|*\\git|*\\git.exe)
       i=$((i + 1))
+      GIT_C_DIR=""
       # Globale git-Optionen überspringen, bis der Unterbefehl kommt. Ein -c mit
       # core.hooksPath biegt die Prüfhooks für diesen einen Aufruf um (auch als -ckey=wert,
       # --config-env=… und in beliebiger Schreibung des Schlüssels).
       while [ $i -lt ${#tokens[@]} ]; do
+        # -C <pfad> vor dem Kleinschreiben merken, sonst greift unten der Zweig für -c.
+        [ "${tokens[$i]}" = "-C" ] && GIT_C_DIR="${tokens[$((i + 1))]:-}"
         word="${tokens[$i],,}"
         case "$word" in
           -c)

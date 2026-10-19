@@ -7,6 +7,16 @@ Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
 ## Unveröffentlicht
 
+## [1.10.0] — 2026-10-19
+
+### Geändert
+
+- **`git-guard`: `git branch -D` ist für `[gone]`-Zweige erlaubt** — also Zweige, die gepusht
+  wurden und deren Upstream auf dem Remote gelöscht ist (typisch nach dem Squash-Merge eines PRs,
+  den `git branch -d` als „nicht gemergt“ ablehnt). Jeder genannte Zweig muss `[gone]` sein;
+  unbekannte Zweige, Zweige ohne Upstream oder mit noch vorhandenem Upstream bleiben geblockt.
+  `git -C <pfad>` wird dabei ausgewertet.
+
 ## [1.9.0] — 2026-10-17
 
 ### Geändert

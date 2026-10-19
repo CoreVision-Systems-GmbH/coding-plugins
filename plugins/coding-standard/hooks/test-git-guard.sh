@@ -289,6 +289,29 @@ check block "$F" "rm -rf $F/.."                               '180 Arbeitsverzei
 check allow "$F" 'Remove-Item -Recurse -Force .\\dist'        '181 relativer Unterordner bleibt erlaubt' PowerShell
 check allow "$F" 'echo `git push origin main`'                '182 Backtick-Substitution hinter echo (Bash)'
 
+# git branch -D ist erlaubt, wenn jeder genannte Zweig [gone] ist (gepusht, auf dem Remote
+# gelöscht). feat/weg ist [gone], feat/da hat noch seinen Upstream, feat/lokal nie gepusht.
+G="$TMP/mit-remote"
+git init -q --bare "$TMP/remote.git" >/dev/null 2>&1
+make_repo "$G" "main"
+git -C "$G" remote add origin "$TMP/remote.git" >/dev/null 2>&1
+for b in feat/weg feat/da; do
+  git -C "$G" branch "$b" >/dev/null 2>&1
+  git -C "$G" push -q -u origin "$b" >/dev/null 2>&1
+done
+git -C "$G" branch feat/lokal >/dev/null 2>&1
+git -C "$G" push -q origin --delete feat/weg >/dev/null 2>&1
+git -C "$G" fetch -q --prune >/dev/null 2>&1
+check allow "$G" 'git branch -D feat/weg'                     '184 git branch -D auf [gone]-Zweig'
+check allow "$F" "git -C $G branch -D feat/weg"               '185 git -C <repo> branch -D auf [gone]-Zweig'
+check allow "$G" 'git branch -D feat/weg' '186 [gone]-Zweig (PowerShell)' PowerShell
+check block "$G" 'git branch -D feat/da'                      '187 Upstream noch vorhanden'
+check block "$G" 'git branch -D feat/lokal'                   '188 nie gepusht, kein Upstream'
+check block "$G" 'git branch -D feat/weg feat/da'             '189 ein Zweig [gone], einer nicht'
+check block "$G" 'git branch -D feat/gibtsnicht'              '190 unbekannter Zweig'
+check block "$F" 'git branch -D feat/weg'                     '191 [gone] nur im anderen Repo'
+check block "$G" 'git branch -rD origin/feat/da'              '192 -rD löscht Remote-Tracking-Zweig'
+
 # hooks.json: die eigentliche Änderung hinter A1 — der Hook hängt an beiden Werkzeugen.
 TOTAL=$((TOTAL + 1))
 if grep -q '"matcher": "Bash|PowerShell"' "$HERE/hooks.json"; then printf 'ok      %-56s %s\n' '183 hooks.json: Matcher Bash|PowerShell' 'vorhanden'
